@@ -1000,27 +1000,26 @@ BOOL APIENTRY DllMain(HINSTANCE hInstance, DWORD dwReason, LPVOID)
 
 					auto user32 = "user32.dll";
 
-					// hooh all the modules in this process.
+					// Explorer carries a few hundred modules and this runs again as
+					// new ones load, so the previous per-module linear scan of the
+					// hook vector was quadratic, with a full PE import table walk
+					// behind every miss.
+					std::unordered_set<HMODULE> hooked;
+					hooked.reserve(iathook_TrackPopupMenu.size() + 64);
+					for(const auto &m : iathook_TrackPopupMenu)
+						hooked.insert(m._hModule);
+
+					// hook all the modules in this process.
 					for(auto hModule : Process::Modules(_initializer.process.handle))
 					{
 						if(_hInstance == hModule)
 							continue;
 
-						bool module_exists = false;
-						for(const auto &m : iathook_TrackPopupMenu)
-						{
-							if(m._hModule == hModule)
-							{
-								module_exists = true;
-								break;
-							}
-						}
+						if(!hooked.insert(hModule).second)
+							continue;
 
-						if(!module_exists)
-						{
-							iathook_TrackPopupMenu.emplace_back(hModule, user32, ::TrackPopupMenu, TrackPopupMenuProc).install();
-							iathook_TrackPopupMenu.emplace_back(hModule, user32, ::TrackPopupMenuEx, TrackPopupMenuExProc).install();
-						}
+						iathook_TrackPopupMenu.emplace_back(hModule, user32, ::TrackPopupMenu, TrackPopupMenuProc).install();
+						iathook_TrackPopupMenu.emplace_back(hModule, user32, ::TrackPopupMenuEx, TrackPopupMenuExProc).install();
 					}
 				};
 

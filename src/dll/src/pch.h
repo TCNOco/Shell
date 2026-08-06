@@ -37,6 +37,7 @@
 //#include <deque>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <d2d1.h>
 #include <dwrite.h>

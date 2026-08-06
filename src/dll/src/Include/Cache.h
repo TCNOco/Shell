@@ -320,11 +320,8 @@ namespace Nilesoft
 
 			Font *at(uint32_t id) const
 			{
-				for(auto &font : fonts)
-				{
-					if(id == font.first) return font.second;
-				}
-				return nullptr;
+				auto it = fonts.find(id);
+				return it != fonts.end() ? it->second : nullptr;
 			}
 
 			Font *at(HFONT hfont) const
