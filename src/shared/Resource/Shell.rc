@@ -32,10 +32,11 @@ LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 #endif
 			VALUE "FileVersion", APP_VERSION
 			VALUE "InternalName", APP_FILENAME
-			VALUE "LegalCopyright", L"\xA9 Nilesoft Ltd."
-			//VALUE "LegalCopyright", L"\xA9 2023 Nilesoft Ltd."
+			// Upstream's copyright is retained as the MIT licence requires; the
+			// fork's own is listed alongside it.
+			VALUE "LegalCopyright", L"\xA9 Nilesoft Ltd. Fork \xA9 TCNO."
 			VALUE "OriginalFilename", APP_FILENAME
-			VALUE "ProductName", APP_NAME
+			VALUE "ProductName", APP_FULLNAME
 			VALUE "ProductVersion", APP_PRODUCT_VERSION
         }
     }

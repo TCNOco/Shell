@@ -250,6 +250,11 @@ namespace Nilesoft
 			HANDLE _handle{};
 
 		public:
+			// Deliberately not renamed with the rest of the fork identity: this
+			// is the family name baked into the embedded FONTICON resource, and
+			// CreateFont looks the face up by it. Changing the string without
+			// rebuilding the font would silently fall back to a default face and
+			// lose every glyph icon.
 			static constexpr auto  Default = L"Nilesoft.Shell";
 			static constexpr auto  SegoeFluentIcons = L"Segoe Fluent Icons";
 			static constexpr auto  SegoeMDL2Assets = L"Segoe MDL2 Assets";

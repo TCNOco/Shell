@@ -16,7 +16,11 @@ namespace Nilesoft
 
 	class RegistryConfig
 	{
-#define	APP_SIG						L"\u0020@nilesoft.shell"
+// Names the handler's subkey under shellex\ContextMenuHandlers and its entry in
+// the Approved list. Must not match upstream's "@nilesoft.shell" or the two
+// installs would overwrite each other's registration. The leading space is
+// load bearing: it sorts the handler to the top of the menu.
+#define	APP_SIG						L"\u0020@tcno.shell"
 #define	APP_COMP_NAME				APP_COMPANY L"." APP_NAME
 #define APP_KEY						L"SOFTWARE\\" APP_COMPANY L"\\" APP_NAME
 

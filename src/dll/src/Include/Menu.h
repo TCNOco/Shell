@@ -4,7 +4,9 @@ namespace Nilesoft
 {
 	namespace Shell
 	{
-		constexpr auto NILESOFTSHELL_SIGN = 0x1989D5CDU;
+		// In-memory struct signature. Changed from upstream's 0x1989D5CD so a
+		// menu handle owned by the other build is never mistaken for ours.
+		constexpr auto NILESOFTSHELL_SIGN = 0x4B21E7A9U;
 
 		struct IProperty
 		{

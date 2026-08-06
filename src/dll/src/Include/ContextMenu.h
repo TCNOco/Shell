@@ -3,12 +3,17 @@
 //constexpr auto WC_MENU_Layer = L"Nilesoft.Shell.Window.Layers";
 //constexpr auto WC_MENU_Layers = L"Nilesoft.Shell.Window.Border";
 //constexpr auto WC_MENU_Layers = L"Nilesoft.Shell.Window.Shadow";
-constexpr auto WC_Shell_Window = L"Nilesoft.Shell.Window";
+// Process-global. Upstream registers "Nilesoft.Shell.Window" in the same
+// process, and RegisterClassW fails on a duplicate name, so this must differ.
+constexpr auto WC_Shell_Window = L"TCNO.Shell.Window";
 constexpr auto def_COMSPEC = L"ComSpec";
 constexpr auto def_EXPLORER = L"explorer.exe";
 constexpr auto def_POWERSHELL = L"powershell.exe";
 constexpr auto def_PWSH = L"pwsh.exe";
-constexpr auto UxSubclass = L"UxSubclass";
+// Window property name, resolved through the global atom table. Sharing
+// upstream's bare "UxSubclass" would mean both builds reading and clobbering
+// each other's saved WNDPROC on the same taskbar windows.
+constexpr auto UxSubclass = L"TCNO.Shell.UxSubclass";
 constexpr auto Windows_UI_FileExplorer = L"Windows.UI.FileExplorer.dll";
 
 #include "Include/Theme.h"
@@ -72,7 +77,9 @@ namespace Nilesoft
 {
 	namespace Shell
 	{
-		constexpr auto NILESOFTSHELL = 0x1E34270FU;
+		// Subclass id, paired with our own SUBCLASSPROC. Changed from upstream's
+		// 0x1E34270F so the two builds cannot collide on a shared window.
+		constexpr auto NILESOFTSHELL = 0x7C0A5E31U;
 		static const uintptr_t CONTEXTMENUSUBCLASS = NILESOFTSHELL;
 		static const uintptr_t CONTEXTMENUSUBCLASS_TASKBAR = NILESOFTSHELL + 1;
 

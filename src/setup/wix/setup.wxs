@@ -1,11 +1,14 @@
 ﻿
 <?include var.wxi ?>
 
-<?define UpgradeCode = '{7BCA6512-254B-456F-8F08-AAD7508BEE00}' ?>
+<!-- Distinct from upstream's {7BCA6512-...BEE00} so this fork is a separate
+     product to the installer rather than an upgrade of Nilesoft Shell, and the
+     two can be installed at the same time. -->
+<?define UpgradeCode = '{8BBDC250-04AC-46BF-9E1F-20B411228A6A}' ?>
 <?define Platform = '$(sys.BUILDARCH)' ?>
 <?define Name = 'Shell' ?>
-<?define Manufacturer = 'Nilesoft' ?>
-<?define FullName = '$(var.Manufacturer) $(var.Name)' ?>
+<?define Manufacturer = 'TCNO' ?>
+<?define FullName = 'TCNO Nilesoft Shell' ?>
 <?define Info = 'Powerful context menu manager for Windows File Explorer' ?>
 <?define bin = '..\..\bin' ?>
 <?define PlatformProgramFilesFolder = 'ProgramFiles6432Folder' ?>

@@ -24,11 +24,16 @@ namespace Nilesoft
 //#define APP_IS_CANARY			1
 //#define APP_CANARY				L"Canary"
 
-#define APP_COMPANY				L"Nilesoft"
-#define APP_COMPANYLTD			APP_COMPANY L" Ltd"
+// APP_COMPANY and APP_NAME are structural: they build the HKCU settings key
+// (SOFTWARE\<company>\<name>) and the CLSID default value (<company>.<name>),
+// so they stay short and space-free and must differ from upstream's
+// Nilesoft\Shell for the two to coexist. APP_FULLNAME is the display name and
+// is now spelled out rather than derived from the two.
+#define APP_COMPANY				L"TCNO"
+#define APP_COMPANYLTD			APP_COMPANY
 #define APP_NAMEA				"Shell"
 #define APP_NAME				L"Shell"
-#define APP_FULLNAME			APP_COMPANY L" " APP_NAME
+#define APP_FULLNAME			L"TCNO Nilesoft Shell"
 //#define APP_FULLNAME_VERSION	APP_FULLNAME L" (debug)"
 #define APP_FILENAME_TITLE		L"shell"
 
@@ -36,9 +41,10 @@ namespace Nilesoft
 #define	APP_VERSION				L"1.9.19"
 //#define APP_VERSION_FULL		L"1.9 build 19"
 
-constexpr auto APP_EMAIL		= L"support@nilesoft.org";
-constexpr auto APP_WEBSITE		= L"www.nilesoft.org";
-constexpr auto APP_WEBSITELINK	= L"https://nilesoft.org";
+// Support for this fork does not go to the upstream author.
+constexpr auto APP_EMAIL		= L"";
+constexpr auto APP_WEBSITE		= L"github.com/TCNOco/Shell";
+constexpr auto APP_WEBSITELINK	= L"https://github.com/TCNOco/Shell";
 
 #ifdef _WINDLL
 	#define APP_FILENAME		APP_FILENAME_TITLE L".dll"
