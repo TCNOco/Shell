@@ -1,0 +1,105 @@
+name: Release
+
+# Publishes a GitHub Release with real, downloadable artifacts. The upstream
+# project has exactly one release tag and it carries no assets at all, so every
+# user has had to go to the website for a build.
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build and publish
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  SOLUTION: src/Shell.sln
+  CONFIGURATION: release
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        platform: [x64, x86, arm64]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Restore packages
+        shell: pwsh
+        run: |
+          nuget restore ${{ env.SOLUTION }}
+          msbuild -t:Restore ${{ env.SOLUTION }} `
+            -p:Configuration=${{ env.CONFIGURATION }} `
+            -p:Platform=${{ matrix.platform }}
+
+      - name: Build
+        shell: pwsh
+        run: |
+          msbuild -m ${{ env.SOLUTION }} `
+            -p:Configuration=${{ env.CONFIGURATION }} `
+            -p:Platform=${{ matrix.platform }}
+
+      - name: Test
+        if: matrix.platform == 'x64'
+        shell: pwsh
+        run: |
+          & "src/bin/tests.exe"
+          if ($LASTEXITCODE -ne 0) { throw "tests failed with exit code $LASTEXITCODE" }
+
+      - name: Stage release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          Copy-Item "src/bin/setup-${{ matrix.platform }}.msi" staging/
+          Copy-Item "src/bin/shell.dll" "staging/shell-${{ matrix.platform }}.dll"
+          Copy-Item "src/bin/shell.exe" "staging/shell-${{ matrix.platform }}.exe"
+          Copy-Item "src/bin/shell.dll.pdb" "staging/shell-${{ matrix.platform }}.dll.pdb"
+          Copy-Item "src/bin/shell.exe.pdb" "staging/shell-${{ matrix.platform }}.exe.pdb"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: staging/**
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # only this job creates the release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * | tee SHA256SUMS.txt
+
+      # Uses the gh CLI preinstalled on the runner rather than a third-party
+      # action, so publishing does not depend on an unpinned external release.
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --draft \
+            --generate-notes \
+            dist/*

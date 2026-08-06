@@ -1,0 +1,47 @@
+name: Docs
+
+# The documentation site lives in docs/ as plain HTML, and nilesoft.org has been
+# returning 503 from a stopped app pool, taking the only published copy of these
+# pages down with it. Serving them from Pages removes that single point of
+# failure.
+#
+# Requires Pages to be enabled once, with Settings > Pages > Source set to
+# "GitHub Actions".
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it midway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check entry point exists
+        run: test -f docs/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
