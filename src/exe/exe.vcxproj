@@ -98,13 +98,13 @@
     <ClCompile>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <DebugInformationFormat>None</DebugInformationFormat>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <Optimization Condition="'$(Configuration)|$(Platform)'=='release|Win32'">MinSpace</Optimization>
       <CallingConvention Condition="'$(Configuration)|$(Platform)'=='release|Win32'">StdCall</CallingConvention>
     </ClCompile>
     <Link>
-      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
       <SetChecksum>true</SetChecksum>
     </Link>

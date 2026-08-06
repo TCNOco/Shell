@@ -104,7 +104,10 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <DebugInformationFormat>None</DebugInformationFormat>
+      <!-- Symbols are needed to make a crash report actionable. The .pdb is a
+           side file, is not referenced by the installer, and does not change
+           the shipped image. -->
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <WholeProgramOptimization>false</WholeProgramOptimization>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <Optimization>MaxSpeed</Optimization>
@@ -113,11 +116,24 @@
     </ClCompile>
     <Link>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>false</OptimizeReferences>
-      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <!-- LTCG and PGO are both worth having here and the plumbing is already
+           half present (see /EMITPOGOPHASEINFO and ProfileGuidedDatabase), but
+           they change codegen across the whole image, and this one is injected
+           into Explorer. Not enabling either until there is a VM test loop that
+           can actually catch a miscompile. -->
       <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
       <IgnoreEmbeddedIDL>true</IgnoreEmbeddedIDL>
-      <AdditionalOptions>/DEBUG:NONE /EMITPOGOPHASEINFO</AdditionalOptions>
+      <AdditionalOptions>/EMITPOGOPHASEINFO</AdditionalOptions>
+      <!-- This DLL is mapped into every process that shows a context menu, so
+           every hard import is resolved N times over. None of these four are
+           touched from DllMain: d2d1 and dwrite are created lazily when a menu
+           first renders, propsys is only reached from expression evaluation,
+           and winmm is a single timeBeginPeriod call deep in the menu code.
+           uxtheme, dwmapi and comctl32 are deliberately left as hard imports;
+           comctl32 in particular interacts with the activation context. -->
+      <DelayLoadDLLs>d2d1.dll;dwrite.dll;propsys.dll;winmm.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
       <SetChecksum>true</SetChecksum>
       <IgnoreSpecificDefaultLibraries />
       <ImageHasSafeExceptionHandlers />
