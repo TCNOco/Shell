@@ -36,7 +36,18 @@
 src/.vs/
 src/exe/obj/
 src/dll/obj/
+src/tests/obj/
 src/setup/ca/obj/
 src/setup/wix/obj/
 src/packages/
 #src/bin/*.exe
+
+# Build output that lands in src/bin alongside the tracked .nss files
+*.lib
+*.exp
+*.msi
+*.pdb
+*.wixpdb
+*.ipdb
+*.iobj
+*.ilk
