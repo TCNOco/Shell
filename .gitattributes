@@ -1,0 +1,20 @@
+# Several files carry non-ASCII sentinels used by the VM smoke test, and Windows
+# PowerShell 5.1 reads a BOM-less .ps1 as ANSI. Their UTF-8 BOM is part of the
+# content and git stores it verbatim; the rules here only normalise line endings
+# so a checkout on any platform still produces files the toolchain accepts.
+* text=auto
+
+*.ps1   text eol=crlf
+*.psm1  text eol=crlf
+*.nss   text eol=crlf
+*.vcxproj text eol=crlf
+*.wxs     text eol=crlf
+*.wxi     text eol=crlf
+*.sln     text eol=crlf
+
+*.png binary
+*.ico binary
+*.bmp binary
+*.ttf binary
+*.lib binary
+*.nupkg binary
