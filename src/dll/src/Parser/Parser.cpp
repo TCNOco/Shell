@@ -1126,11 +1126,15 @@ namespace Nilesoft
 			if(path.empty())
 				return 0;
 			
-			if(path.length() > 2)
-			{
-				if(!((path[1] == L':' && path[2] == L'\\') || (path[0] == L'\\' && path[1] == L'\\')))
-					path = Path::Combine(l->location, path).move();
-			}
+			// Root every relative import against the importing file's own
+			// directory. The length > 2 guard let short names such as "a" through
+			// unrooted, where Path::Full would then resolve them against the
+			// process working directory.
+			const bool rooted = (path.length() > 2 && path[1] == L':' && path[2] == L'\\')
+							 || (path.length() > 1 && path[0] == L'\\' && path[1] == L'\\');
+
+			if(!rooted)
+				path = Path::Combine(l->location, path).move();
 
 			path = Path::FixSeparator(path).move();
 

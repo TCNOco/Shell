@@ -87,19 +87,23 @@ namespace Nilesoft
 					// Determine the required bitmap size.
 					cache->glyph.name = FontCache::Default;
 
-					auto cur_dir = Path::CurrentDirectory();
-					Path::CurrentDirectory(application.Dirctory);
+					// The working directory is deliberately left alone. It used to be
+					// pointed at the install folder for the duration of the parse so
+					// that Path::Full could resolve relative config paths, but that
+					// mutates state shared with every other thread in the host
+					// process for as long as parsing takes. The root config path is
+					// already absolute, and load_import roots every import against
+					// the importing file's own directory.
 					Parser parser;
 
 					load_mui();
 
-					cache->Packages.load();
+					// cache->Packages is loaded on first use; see PackagesCache::all.
 
 					if(!parser.Load())
 					{
 						Status.Error = true;
 						uninit();
-						Path::CurrentDirectory(cur_dir);
 						// Release ownership of the critical section.
 						return false;
 					}
@@ -118,7 +122,6 @@ namespace Nilesoft
 						}
 					}
 
-					Path::CurrentDirectory(cur_dir);
 					cache->fonts.init(HInstance);
 					ContextMenu::FontNotFound = false;
 				}

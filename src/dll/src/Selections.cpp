@@ -582,7 +582,11 @@ namespace Nilesoft
 				else
 					Directory = Parent;
 
-				::SetCurrentDirectoryW(Directory);
+				// Deliberately not ::SetCurrentDirectoryW(Directory). The working
+				// directory is per-process, and this runs on the thread building
+				// the menu inside a host we do not own, so any other thread doing
+				// relative path work in that window saw the wrong directory.
+				// Every consumer now receives Directory explicitly.
 			}
 
 			Types[FSO_BACK] = this->Background;
