@@ -1,4 +1,4 @@
-#include <pch.h>
+﻿#include <pch.h>
 #include <Library/plutovg.h>
 #include <Library/plutosvg.h>
 #include <Library/PlutoVGWrap.h>
@@ -678,14 +678,29 @@ namespace Nilesoft
 						string value;
 						if(Eval(mii->image.expr, value) && !value.empty())
 						{
+							// Same resolved text at the same size always
+							// rasterises to the same bitmap, so a hit skips both
+							// the UTF-8 conversion and the plutosvg parse.
+							// The cache owns the handle; `inherited` keeps item
+							// teardown from deleting it out from under the cache.
+							if(auto hit = cache->bitmaps.find(value.c_str(), value.length(), image_size, image_size))
+							{
+								image->hbitmap = hit;
+								image->inherited = true;
+								image->import = ImageImport::SVG;
+								image->size = { image_size, image_size };
+								return true;
+							}
+
 							std::string vutf8 = std::move(string::ToUTF8(value, value.length<int>()));
 							PlutoVG plutovg;
 							plutovg.load_from_memory(vutf8.c_str(), (int)vutf8.size(), image_size, image_size);
 							if(plutovg)
 							{
 								//plutovg.rgba0();
-								image->hbitmap = plutovg.tobitmap();
-								image->inherited = false;
+								image->hbitmap = cache->bitmaps.add(value.c_str(), value.length(),
+																	image_size, image_size, plutovg.tobitmap());
+								image->inherited = true;
 								image->import = ImageImport::SVG;
 								image->size = { image_size, image_size };
 								return true;
@@ -759,13 +774,24 @@ namespace Nilesoft
 				if(is_svg(obj))
 				{
 					string value = obj.to_string().move();
+
+					if(auto hit = cache->bitmaps.find(value.c_str(), value.length(), width, height))
+					{
+						image->hbitmap = hit;
+						image->inherited = true;
+						image->import = ImageImport::SVG;
+						image->size = { width, height };
+						return true;
+					}
+
 					std::string vutf8 = std::move(string::ToUTF8(value, value.length<int>()));
 					PlutoVG plutovg;
 					plutovg.load_from_memory(vutf8.c_str(), (int)vutf8.size(), width, height);
 					if(plutovg)
 					{
-						image->hbitmap = plutovg.tobitmap();
-						image->inherited = false;
+						image->hbitmap = cache->bitmaps.add(value.c_str(), value.length(),
+															width, height, plutovg.tobitmap());
+						image->inherited = true;
 						image->import = ImageImport::SVG;
 						image->size = { width, height };
 						return true;
@@ -1033,9 +1059,25 @@ namespace Nilesoft
 								if(!value.empty())
 								{
 									//std::string s = "<svg fill='none' viewBox='0 0 16 16'><path fill='#E0DFDF' fill-rule='evenodd' d='M1 3a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H3a2 2 0 01-2-2V3zm2-1a1 1 0 00-1 1v2a1 1 0 001 1h2a1 1 0 001-1V3a1 1 0 00-1-1H3zM9 3a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V3zm2-1a1 1 0 00-1 1v2a1 1 0 001 1h2a1 1 0 001-1V3a1 1 0 00-1-1h-2zM1 11a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H3a2 2 0 01-2-2v-2zm2-1a1 1 0 00-1 1v2a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 00-1-1H3zM9 11a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zm2-1a1 1 0 00-1 1v2a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 00-1-1h-2z' clip-rule='evenodd'/></svg>";
+									// Only the inline form is cached. svgf() names a file on
+									// disk, and caching that would stop edits to it appearing
+									// until the next config reload.
+									const auto cacheable = func.equals(IDENT_SVG);
+									if(cacheable)
+									{
+										if(auto hit = cache->bitmaps.find(value.c_str(), value.length(), width, height))
+										{
+											image->hbitmap = hit;
+											image->inherited = true;
+											image->import = ImageImport::SVG;
+											image->size = { image_size, image_size };
+											return true;
+										}
+									}
+
 									std::string vutf8 = std::move(string::ToUTF8(value, value.length<int>()));
 									PlutoVG plutovg;
-									if(func.equals(IDENT_SVG))
+									if(cacheable)
 										plutovg.load_from_memory(vutf8.c_str(), (int)vutf8.size(), width, height);
 									else
 										plutovg.load_from_file(vutf8.c_str(), width, height);
@@ -1043,8 +1085,11 @@ namespace Nilesoft
 									if(plutovg)
 									{
 										//plutovg.rgba0();
-										image->hbitmap = plutovg.tobitmap();
-										image->inherited = false;
+										auto raster = plutovg.tobitmap();
+										image->hbitmap = cacheable
+											? cache->bitmaps.add(value.c_str(), value.length(), width, height, raster)
+											: raster;
+										image->inherited = cacheable;
 										image->import = ImageImport::SVG;
 										image->size = { image_size, image_size };
 										return true;

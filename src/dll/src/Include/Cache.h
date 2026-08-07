@@ -1,6 +1,7 @@
-#pragma once
+﻿#pragma once
 #include "Expression\Variable.h"
 #include "Include\Theme.h"
+#include "Include\BitmapCache.h"
 #include <Resource.h>
 
 namespace Nilesoft
@@ -455,6 +456,7 @@ namespace Nilesoft
 			FontCache					fonts;
 			PackagesCache				Packages;
 			std::vector<ImageCache>		images;
+			BitmapCache					bitmaps;
 
 			struct
 			{
@@ -479,7 +481,8 @@ namespace Nilesoft
 				}
 
 				images.clear();
-				
+				bitmaps.clear();
+
 				variables.global.clear(true);
 				variables.runtime.clear(true);
 				variables.loc.clear(true);

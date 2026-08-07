@@ -59,11 +59,13 @@
   <ItemGroup>
     <ClInclude Include="test.h" />
     <ClInclude Include="..\shared\System\Text\StringCompare.h" />
+    <ClInclude Include="..\dll\src\Include\BitmapCache.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
     <ClCompile Include="test_stringcompare.cpp" />
     <ClCompile Include="test_encoding.cpp" />
+    <ClCompile Include="test_bitmapcache.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <!-- Run the suite as part of the build so a regression fails CI, not just a
