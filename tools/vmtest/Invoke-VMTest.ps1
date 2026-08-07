@@ -205,22 +205,30 @@ try {
     Write-Ok 'copied'
 
     Write-Step 'Install and register'
-    $install = Invoke-Command -Session $session -ScriptBlock {
-        param($installDir, $skipConfig)
-        # Build the argument list explicitly. An inline @(if (...) { '-NoConfig' })
-        # in argument position stringifies unpredictably, including passing an
-        # empty argument when the condition is false.
-        $a = @(
-            '-NoProfile', '-ExecutionPolicy', 'Bypass',
-            '-File', 'C:\vmtest\Install-Build.ps1',
-            '-PayloadDir', 'C:\vmtest\payload',
-            '-InstallDir', $installDir
-        )
-        if ($skipConfig) { $a += '-NoConfig' }
 
-        $output = & powershell.exe @a 2>&1
+    # Built here, on the host, and shipped as one finished array.
+    #
+    # This previously decided -NoConfig inside the remote scriptblock from an
+    # argument passed as "[bool]$SkipConfig". In argument position PowerShell
+    # does not read that as a cast: it is literal text concatenated with the
+    # variable, so what arrived was the string "[bool]False". Every non-empty
+    # string is truthy, so -NoConfig was passed on every run and the test
+    # configuration was never installed once. Parenthesising would fix the cast,
+    # but deciding it here removes the trap altogether.
+    $installArgs = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass',
+        '-File', 'C:\vmtest\Install-Build.ps1',
+        '-PayloadDir', 'C:\vmtest\payload',
+        '-InstallDir', $InstallDir
+    )
+    if ($SkipConfig.IsPresent) { $installArgs += '-NoConfig' }
+    Write-Ok "install args: $($installArgs -join ' ')"
+
+    $install = Invoke-Command -Session $session -ScriptBlock {
+        param([string[]] $argList)
+        $output = & powershell.exe @argList 2>&1
         [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
-    } -ArgumentList $InstallDir, [bool]$SkipConfig
+    } -ArgumentList (, $installArgs)
 
     $install.Output | ForEach-Object { Write-Host "    $_" }
 
