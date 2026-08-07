@@ -228,23 +228,30 @@ $session = Wait-Guest -Cred $Credential -TimeoutSec $BootTimeoutSec -FailFastOnB
 
 if (-not $session -and -not $CreateUser) {
     throw @"
-Could not sign in to the guest as '$GuestUser'.
+Could not sign in to the VM as '$GuestUser'. The VM is '$((Get-VM -Name $VMName).State)'.
 
-Things that cause this:
+The account name is the usual culprit, and it is often not what the sign-in
+screen shows. A Microsoft Account displays your full name but the actual
+username is derived from your email, and it is that derived name which has to
+be used here.
 
-  * Wrong password. PowerShell Direct authenticates against the guest, so it
-    must be that account's password inside the VM, not anything on the host.
+Inside the VM, open PowerShell and run:
 
-  * The guest account is a Microsoft Account. PowerShell Direct generally
-    cannot authenticate one. Create a local account in the guest instead and
-    re-run with:
+    whoami
 
-        .\Setup-TestVM.ps1 -VMName '$VMName' -CreateUser
+It prints COMPUTERNAME\username. Use the part after the backslash.
 
-    That prompts for a new throwaway local admin, then for an existing account
-    once to bootstrap it.
+If that account is a Microsoft Account, PowerShell Direct usually cannot
+authenticate it at all. Create a local one instead, in an elevated PowerShell
+inside the VM:
 
-  * The guest was still booting or shutting down. It is now '$((Get-VM -Name $VMName).State)'.
+    `$p = Read-Host 'Password' -AsSecureString
+    New-LocalUser -Name shelltest -Password `$p -AccountNeverExpires -PasswordNeverExpires
+    Add-LocalGroupMember -Group Administrators -Member shelltest
+
+then re-run this script and sign in as 'shelltest'. A dedicated account is
+worth having regardless: auto-logon stores whichever account you use in the
+guest registry in plaintext.
 "@
 }
 
