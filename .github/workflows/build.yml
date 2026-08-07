@@ -115,6 +115,19 @@ jobs:
           & "src/bin/tests.exe"
           if ($LASTEXITCODE -ne 0) { throw "tests failed with exit code $LASTEXITCODE" }
 
+      # shell.dll is mapped into every process that shows a context menu, so a
+      # COM call or a LoadLibrary added to DllMain deadlocks in hosts we never
+      # test by hand. x64 only, because it has to load the built DLL.
+      - name: Loader-lock check
+        if: matrix.platform == 'x64'
+        shell: cmd
+        run: |
+          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" || call "%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
+          cl /nologo /O2 /W3 tools\loadcheck\loadcheck.c ole32.lib /Fe:src\bin\loadcheck.exe || exit /b 1
+          src\bin\loadcheck.exe src\bin\shell.dll || exit /b 1
+          del src\bin\loadcheck.exe src\bin\loadcheck.obj 2>nul
+          exit /b 0
+
       - name: Checksums
         shell: pwsh
         run: |
