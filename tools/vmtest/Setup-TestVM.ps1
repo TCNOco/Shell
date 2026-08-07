@@ -113,13 +113,31 @@ if (-not $Credential) {
     $Credential = Get-Credential -UserName $(if ($CreateUser) { $GuestUser } else { '' }) -Message $prompt
 }
 
-# When reusing an existing account, the guest user is simply whoever
-# authenticated. Strip any domain or machine prefix, and trim: a name pasted or
-# typed with a trailing space authenticates as a different account and the
-# resulting error says only "the credential is invalid".
+# Two different things are needed from what was typed, and conflating them was
+# a mistake: the credential must keep whatever qualified form the user supplied,
+# because "MicrosoftAccount\someone@example.com" and "PCNAME\someone" both
+# authenticate where the bare name may not. Only the *derived* pieces below get
+# split apart, for the Winlogon values and the scheduled task principal.
+$typedName = $Credential.UserName.Trim()
+
+if ($typedName -match '^(?<dom>[^\\]+)\\(?<user>.+)$') {
+    $GuestDomain = $Matches['dom'].Trim()
+    $bareUser    = $Matches['user'].Trim()
+}
+else {
+    $GuestDomain = $null       # resolved inside the guest once we are in
+    $bareUser    = $typedName
+}
+
 if (-not $CreateUser -and -not $PSBoundParameters.ContainsKey('GuestUser')) {
-    $GuestUser = ($Credential.UserName -replace '^.*\\', '').Trim()
-    Write-Ok "using existing guest account '$GuestUser'"
+    $GuestUser = $bareUser
+    Write-Ok "signing in as '$typedName' (account '$GuestUser')"
+}
+
+# Rebuild only to drop stray whitespace, never to change the qualified form.
+if ($Credential.UserName -ne $typedName) {
+    $Credential = New-Object pscredential($typedName, $Credential.Password)
+    Write-Note "trimmed whitespace from the username"
 }
 
 if ([string]::IsNullOrWhiteSpace($GuestUser)) {
@@ -139,13 +157,6 @@ guest, or create a dedicated account with
 
     .\Setup-TestVM.ps1 -VMName '$VMName' -CreateUser
 "@
-}
-
-# Rebuild the credential if trimming changed the name, so the connection uses
-# the cleaned value rather than the original.
-if ($Credential.UserName -ne $GuestUser -and -not $CreateUser) {
-    $Credential = New-Object pscredential($GuestUser, $Credential.Password)
-    Write-Note "normalised username to '$GuestUser'"
 }
 
 # ------------------------------------------------------------------- boot
@@ -287,16 +298,20 @@ try {
 
     Write-Step 'Configure guest'
     $report = Invoke-Command -Session $session -ScriptBlock {
-        param($user, $plain)
+        param($user, $plain, $explicitDomain)
 
         $out = [ordered]@{}
 
         # A Microsoft Account has no matching local user and needs
         # DefaultDomainName set to the literal "MicrosoftAccount" instead of the
-        # machine name, so detect which kind of account this is first.
+        # machine name, so detect which kind of account this is first. An
+        # explicit prefix from the caller wins over the guess.
         $isLocal = [bool](Get-LocalUser -Name $user -ErrorAction SilentlyContinue)
         $out.accountType = if ($isLocal) { "local ($user)" } else { "not a local user -- treating as Microsoft Account" }
-        $domain = if ($isLocal) { $env:COMPUTERNAME } else { 'MicrosoftAccount' }
+        $domain = if ($explicitDomain) { $explicitDomain }
+                  elseif ($isLocal)    { $env:COMPUTERNAME }
+                  else                 { 'MicrosoftAccount' }
+        $out.computerName = $env:COMPUTERNAME
 
         # Auto-logon. The smoke test needs an interactive session to exist
         # before it runs; without this there is no desktop to right-click.
@@ -345,7 +360,7 @@ try {
         try { $out.defender = (Get-MpComputerStatus).RealTimeProtectionEnabled } catch { $out.defender = 'unknown' }
 
         $out
-    } -ArgumentList $GuestUser, $Credential.GetNetworkCredential().Password
+    } -ArgumentList $GuestUser, $Credential.GetNetworkCredential().Password, $GuestDomain
 
     foreach ($k in $report.Keys) { Write-Ok ("{0,-18} {1}" -f $k, $report[$k]) }
 

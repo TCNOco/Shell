@@ -179,12 +179,30 @@ try {
     Write-Step 'Install and register'
     $install = Invoke-Command -Session $session -ScriptBlock {
         param($installDir, $skipConfig)
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'C:\vmtest\Install-Build.ps1' `
-            -PayloadDir 'C:\vmtest\payload' -InstallDir $installDir `
-            @(if ($skipConfig) { '-NoConfig' }) 2>&1
-        $LASTEXITCODE
+        # Build the argument list explicitly. An inline @(if (...) { '-NoConfig' })
+        # in argument position stringifies unpredictably, including passing an
+        # empty argument when the condition is false.
+        $a = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', 'C:\vmtest\Install-Build.ps1',
+            '-PayloadDir', 'C:\vmtest\payload',
+            '-InstallDir', $installDir
+        )
+        if ($skipConfig) { $a += '-NoConfig' }
+
+        $output = & powershell.exe @a 2>&1
+        [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
     } -ArgumentList $InstallDir, [bool]$SkipConfig
-    $install | ForEach-Object { Write-Host "    $_" }
+
+    $install.Output | ForEach-Object { Write-Host "    $_" }
+
+    # The exit code used to be collected and then ignored, so a failed install
+    # fell through to the smoke test and reported itself as a pile of missing
+    # menu items rather than as an install failure.
+    if ($install.ExitCode -ne 0) {
+        throw "install failed in the guest with exit code $($install.ExitCode); see output above"
+    }
+    Write-Ok 'installed and registered'
 
     # ---------------------------------------------------- interactive test
 
