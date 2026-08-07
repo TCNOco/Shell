@@ -51,6 +51,24 @@
   <PropertyGroup>
     <LibraryPath>$(SolutionDir)shared\Library;$(LibraryPath)</LibraryPath>
     <IncludePath>$(ProjectDir)src;$(ProjectDir)src\include;$(IncludePath)</IncludePath>
+    <!-- LTCG is off by default because it was measured and did not pay.
+         Enable with /p:ShellEnableLTCG=true.
+
+         It is correct: the VM smoke test passes 24/24 with it on. It saves
+         9.5 KB of 1524 KB. What it does not do is show up in menu build
+         latency. Across three VM runs of twenty samples each, the warm minimum
+         was 45.0 ms with LTCG, 46.3 ms without, and 44.5 ms with it again,
+         while two runs of the *same* LTCG binary gave medians of 61.7 ms and
+         77.0 ms. The run-to-run spread swamps any effect.
+
+         Note also what the harness can resolve: it times WM_CONTEXTMENU to the
+         popup becoming visible, which is mostly Explorer's own message
+         handling, window creation and painting. Our menu build is a fraction of
+         it, so a real improvement in our code could be present and invisible
+         here. That is an argument for better instrumentation, not for turning
+         on whole-image codegen changes in a DLL that loads into Explorer on the
+         strength of convention. -->
+    <ShellEnableLTCG Condition="'$(ShellEnableLTCG)'==''">false</ShellEnableLTCG>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='release'">
     <LinkIncremental>false</LinkIncremental>
@@ -111,7 +129,7 @@
       <!-- /GL. The Configuration property group already asks for whole program
            optimisation; this used to switch it back off for every file, so it
            was never actually on. -->
-      <WholeProgramOptimization>true</WholeProgramOptimization>
+      <WholeProgramOptimization>$(ShellEnableLTCG)</WholeProgramOptimization>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <Optimization>MaxSpeed</Optimization>
       <EnableModules>false</EnableModules>
@@ -125,7 +143,8 @@
            this image is injected into Explorer, so "it linked" is not evidence
            that it works. Validated by opening a real context menu and reading
            the items back out of it. -->
-      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <LinkTimeCodeGeneration Condition="'$(ShellEnableLTCG)'=='true'">UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
+      <LinkTimeCodeGeneration Condition="'$(ShellEnableLTCG)'!='true'">Default</LinkTimeCodeGeneration>
       <IgnoreEmbeddedIDL>true</IgnoreEmbeddedIDL>
       <AdditionalOptions>/EMITPOGOPHASEINFO</AdditionalOptions>
       <!-- This DLL is mapped into every process that shows a context menu, so
