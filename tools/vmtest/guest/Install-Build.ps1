@@ -18,7 +18,14 @@
 param(
     [Parameter(Mandatory)] [string] $PayloadDir,
     [string] $InstallDir = 'C:\Program Files\TCNO Nilesoft Shell',
-    [switch] $NoConfig
+    [switch] $NoConfig,
+    # Windows 11 serves its own XAML context menu, which never goes through
+    # TrackPopupMenu, so the hook has nothing to intercept and the extension
+    # appears to do nothing at all. -treat writes a TreatAs redirect from the
+    # modern menu's CLSID to this one, which is what makes the classic menu --
+    # and therefore this extension -- take effect. See disable_modern() in
+    # src/exe/src/Main.cpp and the built-in help: "shell.exe -register -treat".
+    [switch] $NoTreat
 )
 
 $ErrorActionPreference = 'Stop'
@@ -97,8 +104,18 @@ if (-not $NoConfig) {
 # A stale log would make the smoke test's error assertion meaningless.
 Remove-Item (Join-Path $InstallDir 'shell.log') -Force -ErrorAction SilentlyContinue
 
-Write-Host 'registering'
-$rc = Invoke-ShellExe -Path (Join-Path $InstallDir 'shell.exe') -Arguments @('-register', '-silent')
+$regArgs = @('-register')
+$isWin11 = [Environment]::OSVersion.Version.Build -ge 22000
+if ($isWin11 -and -not $NoTreat) {
+    $regArgs += '-treat'
+    Write-Host 'registering (with -treat: Windows 11 modern menu redirected)'
+}
+else {
+    Write-Host "registering (no -treat; win11=$isWin11, NoTreat=$NoTreat)"
+}
+$regArgs += '-silent'
+
+$rc = Invoke-ShellExe -Path (Join-Path $InstallDir 'shell.exe') -Arguments $regArgs
 # Observed: -register returns 1 even on a fully successful registration, so the
 # exit code is logged for information and deliberately not treated as the
 # success signal. The registry check below is what actually decides.
