@@ -26,12 +26,27 @@ Set-StrictMode -Version Latest
 
 Write-Host "installing from $PayloadDir to $InstallDir"
 
+# shell.exe is linked as SubSystem=Windows. Invoking a GUI-subsystem binary with
+# the call operator returns immediately without waiting and never sets
+# $LASTEXITCODE, so registration would race the checks that follow it. Every
+# invocation goes through Start-Process -Wait -PassThru for that reason.
+function Invoke-ShellExe {
+    param([string] $Path, [string[]] $Arguments, [int] $TimeoutSec = 120)
+
+    $p = Start-Process -FilePath $Path -ArgumentList $Arguments -PassThru
+    if (-not $p.WaitForExit($TimeoutSec * 1000)) {
+        try { $p.Kill() } catch { }
+        throw "$(Split-Path $Path -Leaf) $($Arguments -join ' ') did not exit within ${TimeoutSec}s"
+    }
+    return $p.ExitCode
+}
+
 # Unregister and stop Explorer before touching files on disk.
 $exe = Join-Path $InstallDir 'shell.exe'
 if (Test-Path $exe) {
     Write-Host 'unregistering previous build'
-    & $exe -unregister -silent
-    Start-Sleep -Seconds 1
+    $rc = Invoke-ShellExe -Path $exe -Arguments @('-unregister', '-silent')
+    Write-Host "  exit code $rc"
 }
 
 Write-Host 'stopping explorer'
@@ -83,8 +98,8 @@ if (-not $NoConfig) {
 Remove-Item (Join-Path $InstallDir 'shell.log') -Force -ErrorAction SilentlyContinue
 
 Write-Host 'registering'
-& (Join-Path $InstallDir 'shell.exe') -register -silent
-$rc = $LASTEXITCODE
+$rc = Invoke-ShellExe -Path (Join-Path $InstallDir 'shell.exe') -Arguments @('-register', '-silent')
+Write-Host "  exit code $rc"
 
 # Confirm the registration landed rather than trusting the exit code.
 $clsid = 'HKLM:\SOFTWARE\Classes\CLSID\{87F09619-81FA-4474-B28D-01DDBB2284F1}\InprocServer32'
@@ -97,23 +112,36 @@ if ($registered -ne (Join-Path $InstallDir 'shell.dll')) {
     throw "InprocServer32 points at '$registered', expected '$(Join-Path $InstallDir 'shell.dll')'"
 }
 
-Write-Host 'starting explorer'
-Start-Process explorer.exe
+# Deliberately not Start-Process explorer.exe. This script runs over PowerShell
+# Direct, which is not an interactive session, so launching Explorer from here
+# would start it in the wrong session and leave the real desktop without a
+# shell while adding a stray process for the smoke test to trip over. Windows
+# restarts the shell by itself (Winlogon's AutoRestartShell, on by default), in
+# the correct session.
+Write-Host 'waiting for Windows to restart the shell'
 
-# Wait for the shell to come back and map the DLL, rather than sleeping blind.
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $dll = Join-Path $InstallDir 'shell.dll'
-while ($sw.Elapsed.TotalSeconds -lt 60) {
+while ($sw.Elapsed.TotalSeconds -lt 90) {
     Start-Sleep -Seconds 2
-    $p = Get-Process explorer -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($p) {
+
+    # Only consider Explorer instances that own a desktop, so a shell running in
+    # some other session is never mistaken for the one under test.
+    $candidates = @(Get-Process explorer -ErrorAction SilentlyContinue)
+    foreach ($p in $candidates) {
         try {
-            if ($p.Modules | Where-Object { $_.FileName -ieq $dll }) {
-                Write-Host "shell.dll mapped into explorer pid $($p.Id) after $([int]$sw.Elapsed.TotalSeconds)s"
-                exit 0
+            if ($p.MainWindowHandle -ne 0 -or $p.SessionId -ne 0) {
+                if ($p.Modules | Where-Object { $_.FileName -ieq $dll }) {
+                    Write-Host "shell.dll mapped into explorer pid $($p.Id) (session $($p.SessionId)) after $([int]$sw.Elapsed.TotalSeconds)s"
+                    exit 0
+                }
             }
         } catch { }
     }
+}
+
+if (-not (Get-Process explorer -ErrorAction SilentlyContinue)) {
+    throw 'Windows did not restart the shell; the guest has no desktop for the smoke test to drive'
 }
 
 # Not fatal on its own: the DLL is loaded on demand by the shell, so it may not
