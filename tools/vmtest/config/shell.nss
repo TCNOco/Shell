@@ -22,14 +22,21 @@ settings
 // pointed at the install folder is the whole point of the load_import change.
 import 'imports/vmtest-import.nss'
 
-menu(where=window.is_desktop title='VMTEST_SENTINEL_MENU' pos=0)
-{
-	item(title='VMTEST_ASCII' cmd='')
-	item(title='VMTEST_CJK_中' cmd='')
-	item(title='VMTEST_CJK_渭' cmd='')
-	item(title='VMTEST_CYR_А' cmd='')
-	item(title='VMTEST_CYR_а' cmd='')
-	item(title=vmtest_imported_title cmd='')
-}
-
+// Everything asserted on is a top-level item. Submenu contents are built lazily
+// on WM_INITMENUPOPUP, so a submenu's items do not exist until it is opened and
+// asserting on them from a single right-click would fail for reasons that have
+// nothing to do with the code under test.
 item(where=window.is_desktop title='VMTEST_SENTINEL_ROOT' pos=0 cmd='')
+item(where=window.is_desktop title='VMTEST_ASCII' pos=1 cmd='')
+item(where=window.is_desktop title='VMTEST_CJK_中' pos=2 cmd='')
+item(where=window.is_desktop title='VMTEST_CJK_渭' pos=3 cmd='')
+item(where=window.is_desktop title='VMTEST_CYR_А' pos=4 cmd='')
+item(where=window.is_desktop title='VMTEST_CYR_а' pos=5 cmd='')
+item(where=window.is_desktop title=vmtest_imported_title pos=6 cmd='')
+
+// Kept so the submenu path is still exercised, but nothing is asserted on its
+// contents from a single right-click.
+menu(where=window.is_desktop title='VMTEST_SENTINEL_MENU' pos=7)
+{
+	item(title='VMTEST_SUBITEM' cmd='')
+}

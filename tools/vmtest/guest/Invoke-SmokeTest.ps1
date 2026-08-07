@@ -23,17 +23,18 @@ param(
     [string] $InstallDir = 'C:\Program Files\TCNO Nilesoft Shell',
     [string] $ResultPath = 'C:\vmtest\result.json',
     [string] $ScreenshotPath = 'C:\vmtest\menu.png',
+    # All of these are top-level items in the test config, so a single
+    # right-click is enough to see every one. Nothing here depends on a submenu
+    # having been opened.
     [string[]] $ExpectedItems = @(
-        'VMTEST_SENTINEL_ROOT',
-        'VMTEST_SENTINEL_MENU'
-    ),
-    [string[]] $ExpectedSubItems = @(
+        'VMTEST_SENTINEL_ROOT',   # config parsed and the TrackPopupMenu hook fired
         'VMTEST_ASCII',
-        'VMTEST_CJK_中',
-        'VMTEST_CJK_渭',
+        'VMTEST_CJK_中',          # distinct from the next one only above the
+        'VMTEST_CJK_渭',          #   low byte: the old _memicmp compared them equal
         'VMTEST_CYR_А',
         'VMTEST_CYR_а',
-        'VMTEST_IMPORT_OK'
+        'VMTEST_IMPORT_OK',       # a relative import resolved without the CWD hack
+        'VMTEST_SENTINEL_MENU'    # the submenu itself exists, contents not asserted
     ),
     [int] $MenuTimeoutMs = 6000
 )
@@ -88,8 +89,12 @@ public struct MENUITEMINFO {
 [StructLayout(LayoutKind.Sequential)] public struct MOUSEINPUT {
     public int dx, dy; public uint mouseData, dwFlags, time; public IntPtr dwExtraInfo;
 }
+// Must marshal to exactly sizeof(INPUT): 40 bytes on x64, 28 on x86. SendInput
+// validates the cbSize argument against its own sizeof and returns 0 without
+// injecting anything if they disagree, so trailing padding fields here mean the
+// click silently never happens.
 [StructLayout(LayoutKind.Sequential)] public struct INPUT {
-    public uint type; public MOUSEINPUT mi; public int pad1, pad2;
+    public uint type; public MOUSEINPUT mi;
 }
 
 [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint n, INPUT[] p, int cb);
@@ -254,7 +259,18 @@ try {
     $up = New-Object VmTest.Native+INPUT
     $up.type = 0
     $up.mi.dwFlags = [VmTest.Native]::MOUSEEVENTF_RIGHTUP
-    [void][VmTest.Native]::SendInput(2, @($down, $up), [System.Runtime.InteropServices.Marshal]::SizeOf($down))
+
+    $cb = [System.Runtime.InteropServices.Marshal]::SizeOf($down)
+    $expectedCb = if ([IntPtr]::Size -eq 8) { 40 } else { 28 }
+    Add-Check 'INPUT struct marshals to the right size' ($cb -eq $expectedCb) `
+        "got $cb, want $expectedCb"
+
+    # SendInput returns the number of events injected. Anything less than what
+    # was asked for means no click happened, and every check after this becomes
+    # meaningless, so it is asserted rather than discarded.
+    $sent = [VmTest.Native]::SendInput(2, @($down, $up), $cb)
+    Add-Check 'right-click injected' ($sent -eq 2) `
+        "SendInput returned $sent of 2, last error $([System.Runtime.InteropServices.Marshal]::GetLastWin32Error())"
 
     # The popup is a standard #32768 window even though its items are owner-drawn.
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -266,10 +282,13 @@ try {
     }
     Add-Check 'context menu appeared' ($popup -ne [IntPtr]::Zero) "waited $($sw.ElapsedMilliseconds)ms"
 
-    if ($popup -ne [IntPtr]::Zero) {
-        Start-Sleep -Milliseconds 500
-        $result.screenshot = Save-Screenshot -Path $ScreenshotPath
+    # Captured unconditionally. Screenshotting only on success meant that every
+    # failure so far produced no evidence of what was actually on screen, which
+    # is precisely when it is needed.
+    Start-Sleep -Milliseconds 500
+    $result.screenshot = Save-Screenshot -Path $ScreenshotPath
 
+    if ($popup -ne [IntPtr]::Zero) {
         $hMenu = [VmTest.Native]::SendMessageW($popup, [VmTest.Native]::MN_GETHMENU, [IntPtr]::Zero, [IntPtr]::Zero)
         Add-Check 'menu handle retrieved' ($hMenu -ne [IntPtr]::Zero)
 
