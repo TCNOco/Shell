@@ -98,6 +98,39 @@ whether a smoke-test failure is a real regression or a broken reader:
 .\Test-MenuReader.ps1
 ```
 
+## Things that cost real time getting this working
+
+Each of these produced a failure that looked like something else entirely.
+
+- **PowerShell Direct usually needs the qualified `PCNAME\user` form.** The bare
+  username is rejected with `The credential is invalid`, which is the same
+  message you get for a wrong password, a blank password and a Microsoft
+  Account. Run `whoami` inside the guest and use exactly what it prints. This
+  cost six setup runs.
+- **`$null` in a string P/Invoke parameter marshals as an empty string, not
+  NULL.** `FindWindow(class, $null)` therefore asks for a window with an *empty
+  title* and finds nothing, because the desktop is titled "Program Manager" and
+  a popup menu is not empty either. Declare such parameters `IntPtr` and pass
+  `[IntPtr]::Zero`, or use `[NullString]::Value`.
+- **`shell.exe` is linked `SubSystem=Windows`.** The call operator does not wait
+  for a GUI-subsystem binary and never sets `$LASTEXITCODE`, so registration
+  races whatever checks follow it, and `Set-StrictMode` turns the unset variable
+  into a terminating error. Use `Start-Process -PassThru` plus `WaitForExit`.
+- **`shell.exe -register` exits 1 even when it succeeds.** Verify the CLSID in
+  the registry instead of trusting the exit code.
+- **Never launch Explorer from a PowerShell Direct session.** That session is not
+  interactive, so the new shell lands in the wrong session, the real desktop
+  stays without one, and the smoke test inspects a stray process. Windows
+  restarts the shell itself through `AutoRestartShell`.
+- **Identify Explorer with `GetShellWindow()`**, not by picking the oldest
+  `explorer.exe`. Only one instance owns the desktop, and checking a different
+  one reports the DLL as missing when it is loaded correctly.
+- **`$PSScriptRoot` is empty under `Start-Process -Verb RunAs`**, which routes
+  through ShellExecute. It is populated normally otherwise, including in a
+  `param()` default. Fall back to `$MyInvocation.MyCommand.Path`.
+- **Explorer can take ~55s** to restart and map the DLL after registration.
+  Wait for the module to appear rather than sleeping a fixed interval.
+
 ## Gotchas worth knowing
 
 - **`Invoke-SmokeTest.ps1` and `config/shell.nss` must keep their UTF-8 BOM.**
