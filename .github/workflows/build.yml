@@ -65,23 +65,38 @@ jobs:
           path: build-${{ matrix.platform }}.log
           if-no-files-found: warn
 
-      # Repeated into the job summary, which is readable without signing in.
+      # Re-emitted as ::error:: workflow commands. Run logs and job summaries
+      # both need a signed-in session, but the annotations these produce are
+      # served by the public check-runs API, so the actual compiler diagnostic
+      # is reachable for an architecture that cannot be built locally.
       - name: Surface errors
         if: failure()
         shell: pwsh
         run: |
           $log = "build-${{ matrix.platform }}.log"
-          if (Test-Path $log) {
-            $errs = Select-String -Path $log -Pattern ': error |: fatal error ' |
-                    Select-Object -First 40 -ExpandProperty Line
-            if ($errs) {
-              "## ${{ matrix.platform }} build errors`n" | Out-File $env:GITHUB_STEP_SUMMARY -Append
-              '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
-              $errs | Out-File $env:GITHUB_STEP_SUMMARY -Append
-              '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
-              $errs | ForEach-Object { Write-Host $_ }
-            }
+          if (-not (Test-Path $log)) { Write-Host "::error::no build log at $log"; exit 0 }
+
+          $errs = Select-String -Path $log -Pattern ': error |: fatal error ' |
+                  Select-Object -First 30 -ExpandProperty Line
+
+          if (-not $errs) {
+            # Failed without a recognisable compiler error: show the tail so the
+            # cause is not simply invisible.
+            $errs = Get-Content $log -Tail 30
+            Write-Host "::error::${{ matrix.platform }} build failed with no matching compiler error; tail follows"
           }
+
+          foreach ($e in $errs) {
+            # Newlines and carriage returns have to be escaped or the annotation
+            # is truncated at the first one.
+            $clean = ($e -replace '%', '%25' -replace "`r", '' -replace "`n", '%0A').Trim()
+            if ($clean) { Write-Host "::error::${{ matrix.platform }}: $clean" }
+          }
+
+          "## ${{ matrix.platform }} build errors" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          '```'  | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          $errs  | Out-File $env:GITHUB_STEP_SUMMARY -Append
+          '```'  | Out-File $env:GITHUB_STEP_SUMMARY -Append
 
       # The x64 build runs the suite automatically as a post-build step. The
       # cross-compiled builds cannot run on the host, so invoke it explicitly
