@@ -100,6 +100,28 @@ foreach ($required in 'shell.dll', 'shell.exe') {
 
 # -------------------------------------------------------------- stage payload
 
+# Preflight the guest scripts here rather than discovering a syntax error or an
+# undeclared P/Invoke three minutes into a run, inside a VM, with the evidence
+# already reverted away.
+Write-Step 'Preflight guest scripts'
+foreach ($g in 'guest\Install-Build.ps1', 'guest\Invoke-SmokeTest.ps1') {
+    $gp = Join-Path $vmtest $g
+    $perr = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($gp, [ref]$null, [ref]$perr)
+    if ($perr.Count) { throw "$g has $($perr.Count) parse error(s): $($perr[0].Message)" }
+}
+
+# Compiling the interop block catches a function that is called but never
+# declared, which otherwise fails only at the moment it is first used.
+$smoke = Get-Content (Join-Path $vmtest 'guest\Invoke-SmokeTest.ps1') -Raw
+$block = [regex]::Match($smoke, "(?s)Add-Type -Namespace VmTest.*?'@")
+if ($block.Success) {
+    $probe = [scriptblock]::Create("`$env:LIB=''; `$env:INCLUDE=''`n" + $block.Value)
+    try { & $probe | Out-Null; Write-Ok 'guest interop block compiles' }
+    catch { throw "the smoke test's P/Invoke block does not compile: $($_.Exception.Message)" }
+}
+else { Write-Note 'could not locate the interop block to preflight' }
+
 Write-Step 'Stage payload'
 $payload = Join-Path $ArtifactDir 'payload'
 New-Item -ItemType Directory -Force -Path (Join-Path $payload 'bin') | Out-Null

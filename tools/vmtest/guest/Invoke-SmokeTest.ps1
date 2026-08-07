@@ -126,6 +126,17 @@ public static extern IntPtr FindWindowByClass(string cls, IntPtr title);
 // Cancels the active menu without depending on synthesised keystrokes.
 [DllImport("user32.dll")] public static extern bool EndMenu();
 
+[DllImport("user32.dll", CharSet=CharSet.Unicode)]
+public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, IntPtr title);
+[DllImport("user32.dll")] public static extern IntPtr GetTopWindow(IntPtr h);
+[DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
+[DllImport("user32.dll", CharSet=CharSet.Unicode)]
+public static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder name, int max);
+[DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
+
+public const uint GW_HWNDNEXT   = 2;
+public const uint WM_CONTEXTMENU = 0x007B;
+
 public const uint MN_GETHMENU     = 0x01E1;
 public const uint MIIM_STRING     = 0x00000040;
 public const uint MIIM_SUBMENU    = 0x00000004;
@@ -246,12 +257,43 @@ try {
         $desktop = [VmTest.Native]::FindWindowByClass('Progman', [IntPtr]::Zero)
     }
     Add-Check 'desktop window found' ($desktop -ne [IntPtr]::Zero)
+
+    # Explorer delivers the desktop's context menu through the shell view's
+    # list control, not through Progman itself: Progman -> SHELLDLL_DefView ->
+    # SysListView32. When the desktop has a wallpaper slideshow the view is
+    # reparented under a WorkerW instead, so look there too.
+    $defView = [VmTest.Native]::FindWindowExW($desktop, [IntPtr]::Zero, 'SHELLDLL_DefView', [IntPtr]::Zero)
+    if ($defView -eq [IntPtr]::Zero) {
+        $worker = [IntPtr]::Zero
+        while ($true) {
+            $worker = [VmTest.Native]::FindWindowExW([IntPtr]::Zero, $worker, 'WorkerW', [IntPtr]::Zero)
+            if ($worker -eq [IntPtr]::Zero) { break }
+            $defView = [VmTest.Native]::FindWindowExW($worker, [IntPtr]::Zero, 'SHELLDLL_DefView', [IntPtr]::Zero)
+            if ($defView -ne [IntPtr]::Zero) { break }
+        }
+    }
+    $listView = [IntPtr]::Zero
+    if ($defView -ne [IntPtr]::Zero) {
+        $listView = [VmTest.Native]::FindWindowExW($defView, [IntPtr]::Zero, 'SysListView32', [IntPtr]::Zero)
+    }
+    $result.defView = "0x$('{0:X}' -f [int64]$defView)"
+    $result.listView = "0x$('{0:X}' -f [int64]$listView)"
+    Add-Check 'desktop shell view found' ($defView -ne [IntPtr]::Zero) `
+        "SHELLDLL_DefView $($result.defView), SysListView32 $($result.listView)"
+
     [void][VmTest.Native]::SetForegroundWindow($desktop)
     Start-Sleep -Milliseconds 400
 
     $x = 400; $y = 400
     [void][VmTest.Native]::SetCursorPos($x, $y)
     Start-Sleep -Milliseconds 200
+
+    # Confirm the cursor actually moved. SetCursorPos can be refused, and a
+    # click at the wrong place looks identical to a click that did nothing.
+    $pos = New-Object VmTest.Native+POINT
+    [void][VmTest.Native]::GetCursorPos([ref]$pos)
+    Add-Check 'cursor moved to the click point' (($pos.x -eq $x) -and ($pos.y -eq $y)) `
+        "cursor at ($($pos.x),$($pos.y)), wanted ($x,$y)"
 
     $down = New-Object VmTest.Native+INPUT
     $down.type = 0
@@ -273,20 +315,59 @@ try {
         "SendInput returned $sent of 2, last error $([System.Runtime.InteropServices.Marshal]::GetLastWin32Error())"
 
     # The popup is a standard #32768 window even though its items are owner-drawn.
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    $popup = [IntPtr]::Zero
-    while ($sw.ElapsedMilliseconds -lt $MenuTimeoutMs) {
-        $h = [VmTest.Native]::FindWindowByClass('#32768', [IntPtr]::Zero)
-        if ($h -ne [IntPtr]::Zero -and [VmTest.Native]::IsWindowVisible($h)) { $popup = $h; break }
-        Start-Sleep -Milliseconds 100
+    function Wait-Popup {
+        param([int] $TimeoutMs)
+        $w = [Diagnostics.Stopwatch]::StartNew()
+        while ($w.ElapsedMilliseconds -lt $TimeoutMs) {
+            $h = [VmTest.Native]::FindWindowByClass('#32768', [IntPtr]::Zero)
+            if ($h -ne [IntPtr]::Zero -and [VmTest.Native]::IsWindowVisible($h)) { return $h }
+            Start-Sleep -Milliseconds 100
+        }
+        return [IntPtr]::Zero
     }
-    Add-Check 'context menu appeared' ($popup -ne [IntPtr]::Zero) "waited $($sw.ElapsedMilliseconds)ms"
+
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $popup = Wait-Popup -TimeoutMs $MenuTimeoutMs
+    $result.trigger = 'sendinput'
+
+    # Synthesised mouse input depends on focus, cursor position and the input
+    # queue all cooperating. Posting WM_CONTEXTMENU to the desktop's list view
+    # asks Explorer for the same menu without any of that, so it is a useful
+    # second attempt and tells us which of the two mechanisms is at fault.
+    if ($popup -eq [IntPtr]::Zero -and $listView -ne [IntPtr]::Zero) {
+        $lparam = [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF))
+        [void][VmTest.Native]::PostMessageW($listView, [VmTest.Native]::WM_CONTEXTMENU, $listView, $lparam)
+        $popup = Wait-Popup -TimeoutMs $MenuTimeoutMs
+        if ($popup -ne [IntPtr]::Zero) { $result.trigger = 'wm_contextmenu' }
+    }
+
+    Add-Check 'context menu appeared' ($popup -ne [IntPtr]::Zero) `
+        "waited $($sw.ElapsedMilliseconds)ms, trigger=$($result.trigger)"
 
     # Captured unconditionally. Screenshotting only on success meant that every
     # failure so far produced no evidence of what was actually on screen, which
     # is precisely when it is needed.
     Start-Sleep -Milliseconds 500
     $result.screenshot = Save-Screenshot -Path $ScreenshotPath
+
+    # If nothing showed up, record every visible top-level window class so the
+    # next iteration has data instead of a hypothesis.
+    if ($popup -eq [IntPtr]::Zero) {
+        $classes = @()
+        $h = [VmTest.Native]::GetTopWindow([IntPtr]::Zero)
+        $guard = 0
+        while ($h -ne [IntPtr]::Zero -and $guard -lt 400) {
+            if ([VmTest.Native]::IsWindowVisible($h)) {
+                $sb = New-Object System.Text.StringBuilder 256
+                [void][VmTest.Native]::GetClassNameW($h, $sb, 256)
+                $n = $sb.ToString()
+                if ($n) { $classes += $n }
+            }
+            $h = [VmTest.Native]::GetWindow($h, [VmTest.Native]::GW_HWNDNEXT)
+            $guard++
+        }
+        $result.visibleWindowClasses = @($classes | Select-Object -Unique)
+    }
 
     if ($popup -ne [IntPtr]::Zero) {
         $hMenu = [VmTest.Native]::SendMessageW($popup, [VmTest.Native]::MN_GETHMENU, [IntPtr]::Zero, [IntPtr]::Zero)
