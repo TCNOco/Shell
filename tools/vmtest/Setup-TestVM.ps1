@@ -92,8 +92,19 @@ if ($gsi -and -not $gsi.Enabled) {
 }
 
 if (-not $Credential) {
-    $Credential = Get-Credential -UserName $GuestUser `
-        -Message "Guest administrator account for '$VMName'. With -CreateUser this account will be created."
+    $prompt = if ($CreateUser) {
+        "Account to CREATE in '$VMName'. Choose any username and password; it becomes a throwaway local admin."
+    } else {
+        "The existing administrator account inside '$VMName' (the one you set up when installing Windows)."
+    }
+    $Credential = Get-Credential -UserName $(if ($CreateUser) { $GuestUser } else { '' }) -Message $prompt
+}
+
+# When reusing an existing account, the guest user is simply whoever
+# authenticated. Strip any domain or machine prefix the user typed.
+if (-not $CreateUser -and -not $PSBoundParameters.ContainsKey('GuestUser')) {
+    $GuestUser = ($Credential.UserName -replace '^.*\\', '')
+    Write-Ok "using existing guest account '$GuestUser'"
 }
 
 # ------------------------------------------------------------------- boot
@@ -151,15 +162,22 @@ try {
 
         $out = [ordered]@{}
 
+        # A Microsoft Account has no matching local user and needs
+        # DefaultDomainName set to the literal "MicrosoftAccount" instead of the
+        # machine name, so detect which kind of account this is first.
+        $isLocal = [bool](Get-LocalUser -Name $user -ErrorAction SilentlyContinue)
+        $out.accountType = if ($isLocal) { "local ($user)" } else { "not a local user -- treating as Microsoft Account" }
+        $domain = if ($isLocal) { $env:COMPUTERNAME } else { 'MicrosoftAccount' }
+
         # Auto-logon. The smoke test needs an interactive session to exist
         # before it runs; without this there is no desktop to right-click.
         $wl = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
         Set-ItemProperty $wl -Name AutoAdminLogon  -Value '1'   -Type String
         Set-ItemProperty $wl -Name DefaultUserName -Value $user -Type String
         Set-ItemProperty $wl -Name DefaultPassword -Value $plain -Type String
-        Set-ItemProperty $wl -Name DefaultDomainName -Value $env:COMPUTERNAME -Type String
+        Set-ItemProperty $wl -Name DefaultDomainName -Value $domain -Type String
         Remove-ItemProperty $wl -Name AutoLogonCount -ErrorAction SilentlyContinue
-        $out.autoLogon = 'configured'
+        $out.autoLogon = "configured (domain=$domain)"
 
         Set-ExecutionPolicy -Scope LocalMachine RemoteSigned -Force
         $out.executionPolicy = (Get-ExecutionPolicy -Scope LocalMachine).ToString()
