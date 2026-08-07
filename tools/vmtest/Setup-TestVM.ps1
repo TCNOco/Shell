@@ -114,10 +114,38 @@ if (-not $Credential) {
 }
 
 # When reusing an existing account, the guest user is simply whoever
-# authenticated. Strip any domain or machine prefix the user typed.
+# authenticated. Strip any domain or machine prefix, and trim: a name pasted or
+# typed with a trailing space authenticates as a different account and the
+# resulting error says only "the credential is invalid".
 if (-not $CreateUser -and -not $PSBoundParameters.ContainsKey('GuestUser')) {
-    $GuestUser = ($Credential.UserName -replace '^.*\\', '')
+    $GuestUser = ($Credential.UserName -replace '^.*\\', '').Trim()
     Write-Ok "using existing guest account '$GuestUser'"
+}
+
+if ([string]::IsNullOrWhiteSpace($GuestUser)) {
+    throw 'No guest username was supplied.'
+}
+
+# An empty password cannot authenticate over PowerShell Direct even if the
+# account genuinely has none, so catch it here rather than letting it surface
+# as an indistinguishable "credential is invalid".
+if ([string]::IsNullOrEmpty($Credential.GetNetworkCredential().Password)) {
+    throw @"
+No password was entered for '$GuestUser'.
+
+The prompt needs the password for that account *inside the VM*. If the account
+genuinely has no password, PowerShell Direct still cannot use it: set one in the
+guest, or create a dedicated account with
+
+    .\Setup-TestVM.ps1 -VMName '$VMName' -CreateUser
+"@
+}
+
+# Rebuild the credential if trimming changed the name, so the connection uses
+# the cleaned value rather than the original.
+if ($Credential.UserName -ne $GuestUser -and -not $CreateUser) {
+    $Credential = New-Object pscredential($GuestUser, $Credential.Password)
+    Write-Note "normalised username to '$GuestUser'"
 }
 
 # ------------------------------------------------------------------- boot
