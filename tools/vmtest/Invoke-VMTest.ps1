@@ -35,7 +35,12 @@ param(
     [string] $Checkpoint = 'clean',
     [ValidateSet('x64', 'x86', 'arm64')] [string] $Platform = 'x64',
     [string] $Configuration = 'release',
+    # Bare account name. Used for the scheduled task principal and nothing else.
     [string] $GuestUser = 'tester',
+    # Name used to authenticate. PowerShell Direct frequently needs the
+    # qualified 'PCNAME\user' form where the bare name is rejected outright,
+    # so this is kept separate from $GuestUser rather than derived from it.
+    [string] $GuestLogon,
     [pscredential] $Credential,
     [string] $InstallDir = 'C:\Program Files\TCNO Nilesoft Shell',
     [string] $ArtifactDir,
@@ -145,8 +150,9 @@ Start-VM -Name $VMName -ErrorAction SilentlyContinue | Out-Null
 # username must not be prefixed with the VM name -- the VM name is a host-side
 # label and has nothing to do with the guest's computer name.
 if (-not $Credential) {
-    $Credential = Get-Credential -UserName $GuestUser `
-                                 -Message "Guest account for '$VMName' (PowerShell Direct)"
+    if (-not $GuestLogon) { $GuestLogon = $GuestUser }
+    $Credential = Get-Credential -UserName $GuestLogon `
+        -Message "Account inside '$VMName'. Use the qualified PCNAME\user form if the bare name is rejected."
 }
 $cred = $Credential
 
@@ -209,8 +215,22 @@ try {
     # PowerShell Direct sessions are not interactive and cannot see the desktop,
     # so the smoke test runs as a scheduled task in the logged-on user's session.
     Write-Step 'Run smoke test in the interactive session'
-    Invoke-Command -Session $session -ScriptBlock {
+    $taskReport = Invoke-Command -Session $session -ScriptBlock {
         param($installDir, $user)
+
+        $out = [ordered]@{}
+
+        # An Interactive-logon task only runs if that user actually has a
+        # session. Without this check a missing session looks identical to a
+        # smoke test that ran and produced nothing.
+        $sessions = @(Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue |
+                      ForEach-Object { (Invoke-CimMethod -InputObject $_ -MethodName GetOwner).User } |
+                      Where-Object { $_ })
+        $out.interactiveUsers = ($sessions | Sort-Object -Unique) -join ','
+        if (-not $sessions) {
+            $out.error = 'no interactive session in the guest; auto-logon is not working'
+            return $out
+        }
 
         $taskName = 'TCNOShellSmokeTest'
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
@@ -226,10 +246,34 @@ try {
         $sw = [Diagnostics.Stopwatch]::StartNew()
         while ($sw.Elapsed.TotalSeconds -lt 180) {
             if (Test-Path 'C:\vmtest\result.json') { Start-Sleep -Seconds 2; break }
+            $info = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            # Ready again with no result file means it started and exited
+            # without writing one, which is a different failure from a hang.
+            if ($info -and $info.State -eq 'Ready' -and $sw.Elapsed.TotalSeconds -gt 10) {
+                if (-not (Test-Path 'C:\vmtest\result.json')) {
+                    $i = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
+                    $out.lastTaskResult = $i.LastTaskResult
+                    $out.lastRunTime = "$($i.LastRunTime)"
+                    break
+                }
+            }
             Start-Sleep -Seconds 2
         }
+        $out.waitedSeconds = [int]$sw.Elapsed.TotalSeconds
+        $out.producedResult = Test-Path 'C:\vmtest\result.json'
+
         Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
+        $out
     } -ArgumentList $InstallDir, $GuestUser
+
+    foreach ($k in $taskReport.Keys) { Write-Host ("    {0,-18} {1}" -f $k, $taskReport[$k]) }
+    if ($taskReport.Contains('error')) { throw $taskReport.error }
+    if (-not $taskReport.producedResult) {
+        Write-Bad "the smoke test produced no result file after $($taskReport.waitedSeconds)s"
+        if ($taskReport.Contains('lastTaskResult')) {
+            Write-Bad "scheduled task exited with 0x$('{0:X}' -f [int]$taskReport.lastTaskResult)"
+        }
+    }
 
     # ------------------------------------------------------------ collect
 

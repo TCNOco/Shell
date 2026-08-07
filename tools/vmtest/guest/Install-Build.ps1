@@ -45,6 +45,35 @@ New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 
 Copy-Item "$PayloadDir\bin\*" $InstallDir -Recurse -Force
 
+# Verify the binaries actually survived the copy. This DLL patches import tables
+# in every process it loads into, which is exactly what antivirus heuristics
+# look for, so a silent quarantine is a realistic outcome and would otherwise
+# surface much later as an inexplicably empty menu. Deliberately not excluded
+# from Defender up front: if it does get flagged, that is worth knowing about
+# because real users will hit it too.
+foreach ($required in 'shell.dll', 'shell.exe') {
+    $dst = Join-Path $InstallDir $required
+    $src = Join-Path "$PayloadDir\bin" $required
+    if (-not (Test-Path $dst)) {
+        $detected = try {
+            Get-MpThreatDetection -ErrorAction Stop |
+                Where-Object { $_.Resources -match [regex]::Escape($required) } |
+                Select-Object -First 1
+        } catch { $null }
+
+        if ($detected) {
+            throw "$required disappeared after copying; Defender flagged it as '$($detected.ThreatID)'. Add an exclusion for $InstallDir in the guest."
+        }
+        throw "$required is missing from $InstallDir after the copy"
+    }
+    $srcLen = (Get-Item $src).Length
+    $dstLen = (Get-Item $dst).Length
+    if ($srcLen -ne $dstLen) {
+        throw "$required copied at $dstLen bytes but the payload is $srcLen bytes"
+    }
+}
+Write-Host 'binaries verified in place'
+
 if (-not $NoConfig) {
     Write-Host 'applying test configuration'
     Copy-Item "$PayloadDir\config\*" $InstallDir -Recurse -Force
