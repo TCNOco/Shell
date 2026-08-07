@@ -99,7 +99,10 @@ Remove-Item (Join-Path $InstallDir 'shell.log') -Force -ErrorAction SilentlyCont
 
 Write-Host 'registering'
 $rc = Invoke-ShellExe -Path (Join-Path $InstallDir 'shell.exe') -Arguments @('-register', '-silent')
-Write-Host "  exit code $rc"
+# Observed: -register returns 1 even on a fully successful registration, so the
+# exit code is logged for information and deliberately not treated as the
+# success signal. The registry check below is what actually decides.
+Write-Host "  exit code $rc (not authoritative)"
 
 # Confirm the registration landed rather than trusting the exit code.
 $clsid = 'HKLM:\SOFTWARE\Classes\CLSID\{87F09619-81FA-4474-B28D-01DDBB2284F1}\InprocServer32'

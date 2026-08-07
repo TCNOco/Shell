@@ -95,7 +95,14 @@ public struct MENUITEMINFO {
 [DllImport("user32.dll", SetLastError=true)] public static extern uint SendInput(uint n, INPUT[] p, int cb);
 [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
 [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
-[DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowW(string cls, string title);
+// The title is declared IntPtr, not string, so IntPtr.Zero passes a real NULL.
+// PowerShell marshals $null into a string parameter as an empty string, which
+// turns FindWindow(class, NULL) -- "any window of this class" -- into
+// FindWindow(class, "") -- "a window of this class whose title is empty". The
+// desktop's title is "Program Manager" and a popup menu's is not empty either,
+// so both lookups silently found nothing.
+[DllImport("user32.dll", CharSet=CharSet.Unicode, EntryPoint="FindWindowW")]
+public static extern IntPtr FindWindowByClass(string cls, IntPtr title);
 [DllImport("user32.dll")] public static extern IntPtr SendMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
 [DllImport("user32.dll")] public static extern int GetMenuItemCount(IntPtr hMenu);
 [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern bool GetMenuItemInfoW(IntPtr hMenu, uint item, bool byPos, ref MENUITEMINFO mii);
@@ -227,7 +234,12 @@ try {
     Add-Check 'shell.dll loaded into explorer' ($null -ne $loaded) $dllPath
 
     # 2. Open a context menu on the desktop and read it.
-    $desktop = [VmTest.Native]::FindWindowW('Progman', $null)
+    # GetShellWindow is the authoritative handle for the desktop; the Progman
+    # class lookup is only a fallback.
+    $desktop = [VmTest.Native]::GetShellWindow()
+    if ($desktop -eq [IntPtr]::Zero) {
+        $desktop = [VmTest.Native]::FindWindowByClass('Progman', [IntPtr]::Zero)
+    }
     Add-Check 'desktop window found' ($desktop -ne [IntPtr]::Zero)
     [void][VmTest.Native]::SetForegroundWindow($desktop)
     Start-Sleep -Milliseconds 400
@@ -248,7 +260,7 @@ try {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $popup = [IntPtr]::Zero
     while ($sw.ElapsedMilliseconds -lt $MenuTimeoutMs) {
-        $h = [VmTest.Native]::FindWindowW('#32768', $null)
+        $h = [VmTest.Native]::FindWindowByClass('#32768', [IntPtr]::Zero)
         if ($h -ne [IntPtr]::Zero -and [VmTest.Native]::IsWindowVisible($h)) { $popup = $h; break }
         Start-Sleep -Milliseconds 100
     }
@@ -288,7 +300,7 @@ try {
 
     # A menu left open would keep Explorer in a modal loop and make every check
     # below it unreliable.
-    $stillOpen = [VmTest.Native]::FindWindowW('#32768', $null)
+    $stillOpen = [VmTest.Native]::FindWindowByClass('#32768', [IntPtr]::Zero)
     Add-Check 'menu closed cleanly' `
         ($stillOpen -eq [IntPtr]::Zero -or -not [VmTest.Native]::IsWindowVisible($stillOpen))
 
