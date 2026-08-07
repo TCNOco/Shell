@@ -1269,7 +1269,12 @@ namespace Nilesoft
 
 			static uint32_t get_index(HMENU hMenu, uint32_t id)
 			{
-				for(int i = 0; i < get_count(hMenu); i++)
+				// The count is read once rather than from the loop condition. It
+				// used to sit in the condition, so walking a k-item menu cost 2k
+				// transitions into win32k instead of k, to re-read a value that
+				// cannot change while we are walking it.
+				const int count = get_count(hMenu);
+				for(int i = 0; i < count; i++)
 				{
 					MENUITEMINFOW mii = { sizeof mii, MIIM_ID };
 					if(::GetMenuItemInfoW(hMenu, i, true, &mii))

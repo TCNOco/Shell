@@ -66,7 +66,6 @@ namespace Nilesoft
 				//hooker.destroy();
 				this->uninit();
 				WIC::release();
-				D2D::destroy_Factory();
 			}
 			catch(...)
 			{

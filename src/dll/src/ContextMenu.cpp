@@ -1541,7 +1541,13 @@ namespace Nilesoft
 		//if(CompareString(LOCALE_INVARIANT, NORM_IGNORECASE, FRIENDLY_NAME_DOCUMENTS, -1, friendlyPath.c_str(), -1)
 		LRESULT ContextMenu::OnUninitMenuPopup(HMENU hMenu)
 		{
-			auto menu = &_menus[hMenu];
+			// find, not operator[]: this runs as the popup is torn down and is
+			// immediately followed by DestroyMenu, so inserting on a miss would
+			// leave an entry keyed on a dead HMENU. Handles get recycled, and a
+			// later popup landing on the same value would then pick up stale
+			// draw metrics.
+			auto found = _menus.find(hMenu);
+			auto menu = found != _menus.end() ? &found->second : nullptr;
 			current.hMenu = hMenu;
 
 			if(level > 0) level--;
@@ -1562,7 +1568,8 @@ namespace Nilesoft
 			__trace(L"ContextMenu.UninitMenuPopup");
 			
 			current.hMenu = nullptr;
-			menu->wnd = nullptr;
+			if(menu)
+				menu->wnd = nullptr;
 			return ret;
 		}
 
@@ -1656,357 +1663,6 @@ namespace Nilesoft
 			}
 		};
 
-		LRESULT ContextMenu::OnDrawItem_D2D(DRAWITEMSTRUCT *di)
-		{
-			LRESULT lret = TRUE;
-
-			auto hMenu = reinterpret_cast<HMENU>(di->hwndItem);
-			auto rc = reinterpret_cast<const Rect *>(&di->rcItem);
-			DC dc = di->hDC;
-			Flag<uint32_t> faction = di->itemAction;
-			Flag<uint32_t> fState = di->itemState;
-
-			DRAWITEMSTATE state(di->itemState);
-
-			auto draw_entire = faction.has(ODA_DRAWENTIRE);
-			//state.selected = fState.has(ODS_SELECTED);
-			//state.disabled = fState.has(ODS_DISABLED) || fState.has(ODS_GRAYED);
-
-			Color back_color = _theme.back.color.nor;
-			Color text_color = _theme.text.color.nor;
-
-			_tip.hide(!draw_entire);
-
-			D2D d2d2;
-			d2d2.init_res();
-			d2d2.begin(di->hDC, *rc);
-
-			D2D1_SIZE_F size_f = { static_cast<float>(rc->width()), static_cast<float>(rc->height()) };
-
-			//d2d->render->SetDpi(ctx->dpi.val, ctx->dpi.val);
-			//d2d->render->SetTransform(D2D1::Matrix3x2F::Identity());
-
-			d2d2.render->Clear(_theme.background.color);
-
-			if(state.selected)
-			{
-				if(state.disabled)
-				{
-					back_color = _theme.back.color.sel_dis;
-					text_color = _theme.text.color.sel_dis;
-				}
-				else
-				{
-					back_color = _theme.back.color.sel;
-					text_color = _theme.text.color.sel;
-				}
-			}
-			else if(state.disabled)
-			{
-				back_color = _theme.back.color.nor_dis;
-				text_color = _theme.text.color.nor_dis;
-			}
-
-			if(di->itemID == MF_NOITEM)
-			{
-				auto rect = *rc;
-				rect.left += _theme.separator.margin.left;
-				rect.right -= _theme.separator.margin.right;
-				//rect.top += _theme.separator.margin.top;		
-				rect.top += _theme.separator.margin.top;
-				rect.bottom = rect.top + _theme.separator.size;
-				//dc.fill_rect(*rc, composition ? dc.stock_brush(BLACK_BRUSH) : _hbackground);
-				//draw_rect(&dc, rect.point(), { rect.width(), _theme.separator.size }, _theme.separator.color);
-				//d2d2.brush->SetColor(D2D1::ColorF(0.f, 1.f, 0.f, 1.f));
-				d2d2.brush->SetColor(_theme.separator.color);
-				//d2d2.render->DrawLine(D2D1::Point2F((float)rect.left, 0), D2D1::Point2F((float)rect.right, 10),
-				//					  d2d2.brush, 0.5f);
-
-				D2D1_RECT_F rectF{};
-				rectF.left = (float)rect.left;
-				rectF.right = (float)rect.width();
-				rectF.top = ((float)(rc->height() + _theme.separator.size) / 2.f) - _theme.separator.size;
-				rectF.bottom = rectF.top + (float)_theme.separator.size;
-				
-				d2d2.render->FillRectangle(rectF, d2d2.brush);
-
-				d2d2.end(true);
-				dc.exclude_clip_rect(*rc);
-				return lret;
-			}
-
-			auto menu = &_menus[hMenu];
-
-			auto mii = get_item(di->itemID, hMenu, _items);
-
-			if(!mii || (mii->title.empty() && !ident.equals(mii->wID)))
-			{
-				lret = msg.invoke();
-				//DC dc_layer(dc.CreateCompatibleDC(), 1);
-				dc.set_back_mode(true);
-				dc.set_back(back_color);
-				dc.set_text(text_color);
-				//dc.fill_rect(di->rcItem, composition ? dc.stock_brush(BLACK_BRUSH) : _hbackground);
-				
-				d2d2.end(true);
-				dc.exclude_clip_rect(*rc);
-				return lret;
-			}
-
-			auto is_label = mii->visibility == Visibility::Label;
-			auto is_static = mii->visibility == Visibility::Static;
-			auto is_static_or_label = is_static || is_label;
-
-			if(draw_entire)
-			{
-				mii->index = MENU::get_index(hMenu, mii->wID);
-				::GetMenuItemRect(0, hMenu, mii->index, &mii->rect);
-				
-				//dc.fill_rect(di->rcItem, composition ? dc.stock_brush(BLACK_BRUSH) : _hbackground);
-			}
-			else
-			{
-				if(state.disabled && is_static_or_label)
-				{
-					d2d2.end(true);
-					dc.exclude_clip_rect(*rc);
-					return lret;
-				}
-			}
-
-			if(!(state.disabled && is_static_or_label))
-			{
-				if(state.selected)
-				{
-					current.select_previtem = current.selectitem;
-					current.selectitem = mii;
-					if(mii->tip)
-						current.tip = mii;
-				}
-				else
-				{
-				}
-			}
-
-			if(state.disabled)
-			{
-				if(is_static_or_label)
-				{
-					state.disabled = false;
-					back_color = _theme.back.color.nor;
-					text_color = _theme.text.color.nor;
-				}
-				else
-				{
-				}
-			}
-
-			const long image_size = _theme.image.size;
-			auto rcblock = *rc;
-
-			rcblock.top = _theme.back.margin.top;
-			rcblock.bottom = rc->height() - _theme.back.margin.bottom;
-
-			if(mii->cch > 0 || !menu->has_col)
-			{
-				rcblock.left += _theme.back.margin.left;
-				rcblock.right -= _theme.back.margin.right;
-			}
-			else
-			{
-				rcblock.left += _theme.back.margin.left + dpi(3);
-				rcblock.right -= _theme.back.margin.right + dpi(3);
-			}
-
-			//const auto width = rcblock.width();
-			const auto height = rcblock.height();
-
-			auto rcimg = rcblock;
-			auto rcText = rcblock;
-
-			rcimg.top = rcblock.top + ((height - image_size) / 2);
-			rcimg.bottom = rcimg.top + image_size;
-
-			if(mii->cch > 0 || !menu->has_col)
-			{
-				if(mii->cch == 0)
-				{
-				}
-				else
-				{
-					rcimg.left = rcblock.left + _theme.back.padding.left;
-					rcimg.right = rcimg.left + image_size;
-				}
-			}
-
-			if(!is_static_or_label)
-			{
-				uint8_t op = back_color.a;
-
-				Color border_color = _theme.back.border.nor;
-
-				if(state.selected)
-				{
-					if(state.disabled && _theme.back.color.sel_dis.a > 0)
-						op = _theme.back.color.sel_dis.a;
-					else if(!state.disabled && _theme.back.color.sel_dis.a > 0)
-						op = _theme.back.color.sel.a;
-
-					border_color = state.disabled ? _theme.back.border.sel_dis : _theme.back.border.sel;
-				}
-				else
-				{
-					if(state.disabled && _theme.back.color.nor_dis.a > 0)
-						op = _theme.back.color.nor_dis.a;
-					else if(!state.disabled && _theme.back.color.nor.a > 0)
-						op = _theme.back.color.nor.a;
-
-					if(state.disabled)
-						border_color = _theme.back.border.nor_dis;
-				}
-
-				//if(op > 0)
-				{
-					back_color.a = op;
-					//draw_rect(&dc, rcblock.point(), { width, height }, back_color, border_color, _theme.back.radius);
-
-					D2D1_RECT_F rectF = { 0, 0, size_f.width, size_f.height };
-
-					if(state.selected)
-					{
-						d2d2.brush->SetColor(_theme.background.color);
-						d2d2.render->FillRectangle(rectF, d2d2.brush);
-					}
-
-					d2d2.brush->SetColor(back_color);
-
-					if(_theme.back.radius == 0)
-					{
-						d2d2.render->FillRectangle(rectF, d2d2.brush);
-					}
-					else 
-					{
-						auto radius = (float)_theme.back.radius;
-						
-						d2d2.render->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-						d2d2.render->FillRoundedRectangle({ rectF,radius, radius }, d2d2.brush);
-					}
-				}
-			}
-
-			auto has_checked_image = menu->draw.checks && menu->draw.images && (_theme.image.display >= 2);
-			
-			if(!mii->title.empty())
-			{
-				Color clrtext = text_color;
-
-				if(!is_label && menu->draw.has_align())
-				{
-					rcText.left = rcblock.left + _theme.image.size + _theme.image.gap + _theme.back.padding.left;
-					if(has_checked_image)
-						rcText.left += _theme.image.size + _theme.image.gap;
-				}
-				else
-				{
-					rcText.left += _theme.back.padding.left;
-				}
-
-				rcText.right -= _theme.back.padding.right;
-
-				if(mii->tab >= 0 && mii->is_popup())
-					rcText.right -= _theme.image.size;
-
-				auto txtfmt = DT_NOCLIP | DT_SINGLELINE | DT_VCENTER;
-
-				if(_theme.text.prefix)
-					txtfmt |= _theme.text.prefix;
-
-
-				//rcText.top = rc->top - dpi(1);
-				//rcText.bottom = rc->bottom;
-
-				if(mii->tab <= 0 && mii->keys.empty())
-				{
-					//draw_string(dc, font.handle, &rcText, clrtext, mii->title, mii->title.length<int>(), (mii->tab < 0 ? DT_LEFT : DT_RIGHT) | txtfmt);
-					///_log.info(L"%d %s", _theme.font.lfHeight, _theme.font.lfFaceName);
-					auto tf = d2d2.createTextFormat(_theme.font.lfFaceName, std::abs(_theme.font.lfHeight));
-					if(tf)
-					{
-						d2d2.render->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE::D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-						tf->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-						tf->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
-						tf->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-						//_log.info(L"%d %s", _theme.font.lfHeight, _theme.font.lfFaceName);
-						d2d2.brush->SetColor(clrtext);
-
-						D2D1_RECT_F rect_ =
-						{
-							(float)rcText.left, (float)rcText.top,
-							float(rcText.width()),
-							float(rcText.height())
-						};
-						
-					
-						d2d2.render->DrawTextW(mii->title.normalize, mii->title.normalize.length<uint32_t>(),
-											   tf,
-											   rect_,
-											   d2d2.brush);
-						tf->Release();
-					}
-				}
-				else
-				{
-					/*auto ds = [&](const string &left, const string &right)
-					{
-						if(!left.empty())
-							draw_string(dc, font.handle, &rcText, clrtext, left, left.length<int>(), DT_LEFT | txtfmt);
-
-						if(!right.empty())
-						{
-							Color c = clrtext;
-							LOGFONTW lf{};
-							std::memcpy(&lf, &_theme.font.lfHeight, sizeof lf);
-							lf.lfHeight = long(lf.lfHeight * 0.80f);
-							lf.lfWeight = FW_LIGHT;
-							//lf.lfQuality = CLEARTYPE_NATURAL_QUALITY;
-							auto_gdi<HFONT> r_hfont(::CreateFontIndirectW(&lf));
-							if(menu->id == IDENT_ID_INSERT_UNICODE_CONTROL_CHARACTER)
-								c.opacity(state.disabled ? 50 : 100);
-							else
-								c.opacity(state.disabled ? 30 : 50);
-
-							draw_string(dc, r_hfont.get(), &rcText, c, right, right.length<int>(), DT_RIGHT | txtfmt);
-						}
-					};
-
-					if(mii->keys.empty())
-					{
-						string left = mii->title.text.substr(0, mii->tab).trim_end().move();
-						string right = mii->title.text.substr(mii->tab).trim_start().move();
-						ds(left, right);
-					}
-					else
-					{
-						ds(mii->title.text, mii->keys);
-					}*/
-				}
-
-			}
-
-			if(state.selected && mii->tip)
-				//	_tip.show(mii->tip, mii->rect);
-				_tip.show(mii->tip.text, mii->tip.type, mii->tip.time, mii->rect);
-
-			d2d2.end(true);
-
-			// exlude menu item rectangle to prevent drawing by windows after us
-			dc.exclude_clip_rect(*rc);
-
-			return lret;
-		}
-
-		int ooo = 0;
-
 		LRESULT ContextMenu::OnDrawItem(DRAWITEMSTRUCT *di)
 		{
 			LRESULT lret = TRUE;
@@ -2014,11 +1670,6 @@ namespace Nilesoft
 			if(di->itemID == 0x5ffffffe)
 				return lret;
 
-			bool render_d2d = false;
-			if(render_d2d)
-				return OnDrawItem_D2D(di);
-
-			
 			auto hMenu = reinterpret_cast<HMENU>(di->hwndItem);
 			auto rc = reinterpret_cast<const Rect *>(&di->rcItem);
 
@@ -2074,7 +1725,13 @@ namespace Nilesoft
 			//dc.draw_fillrect({ rc->left, rc->top, rc->right, rc->bottom }, (composition ? 0x000000 : _theme.background.color));
 			//dc.fill_rect(di->rcItem, composition ? dc.stock_brush(BLACK_BRUSH) : _hbackground);
 
-			auto menu = &_menus[hMenu];
+			// find, not operator[]: this is a paint handler, and operator[] would
+			// default-construct a menu_t (three vectors and a string) and insert
+			// it into the map on every miss. The empty fallback keeps the drawing
+			// maths identical to what a freshly inserted entry would have given.
+			static const menu_t no_menu{};
+			auto found = _menus.find(hMenu);
+			auto menu = found != _menus.end() ? &found->second : &no_menu;
 
 			auto mii = get_item(di->itemID, hMenu, _items);
 
@@ -5587,8 +5244,6 @@ namespace Nilesoft
 			::Sleep((int)round(m_ms));
 			::timeEndPeriod(ms_granularity);
 		}
-		int bbb = 0;
-		int ixi = 0;
 		LRESULT __stdcall ContextMenu::MenuSubClassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
 														[[maybe_unused]] UINT_PTR uIdSubclass,
 														DWORD_PTR dwRefData)
@@ -5610,10 +5265,7 @@ namespace Nilesoft
 				return defSubclassProc();
 
 			if(!wnd->hdc)
-			{
-				ixi = 0;
 				wnd->hdc = ::GetWindowDC(hWnd);
-			}
 
 			LRESULT lret = FALSE;
 			auto theme = &ctx->_theme;
@@ -5924,35 +5576,10 @@ namespace Nilesoft
 					return lret;
 				case WM_ERASEBKGND:
 				{
-					if(++ixi == 0)
-					{
-						Rect r = hWnd;
-						D2D d2d;
-						
-						d2d.begin(wnd->hdc, { 0, 0, r.width(), r.height() });
-						
-						//auto z = (float)theme->border.size*2;
-						D2D1_RECT_F rect = { 0.0f, 0.0f, float(r.width()), float(r.height()) };
-
-						//d2d.render->SetDpi(96.f, 96.f);
-						d2d.render->SetTransform(D2D1::Matrix3x2F::Identity());
-						//d2d.render->Clear(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.f));
-						if(theme->border.radius > 0)
-						{
-							d2d.render->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-							auto radius = float(theme->border.radius);
-							d2d.brush->SetColor(theme->background.color);
-							d2d.render->FillRoundedRectangle({ rect, radius, radius }, d2d.brush);
-						}
-						else
-						{
-							d2d.brush->SetColor(theme->background.color);
-							d2d.render->FillRectangle(rect, d2d.brush);
-						}
-						d2d.end(true);
-					}
+					// The background is painted per item in OnDrawItem, so this
+					// only has to claim the message. A Direct2D rounded-rect fill
+					// used to sit here behind `if(++ixi == 0)`, which never fired.
 					lret = TRUE;
-					//lret = ::DefSubclassProc(hWnd, uMsg, wParam, lParam);
 					return lret;
 				}
 				case WM_SETCURSOR:

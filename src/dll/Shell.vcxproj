@@ -148,13 +148,17 @@
       <IgnoreEmbeddedIDL>true</IgnoreEmbeddedIDL>
       <AdditionalOptions>/EMITPOGOPHASEINFO</AdditionalOptions>
       <!-- This DLL is mapped into every process that shows a context menu, so
-           every hard import is resolved N times over. None of these four are
-           touched from DllMain: d2d1 and dwrite are created lazily when a menu
-           first renders, propsys is only reached from expression evaluation,
-           and winmm is a single timeBeginPeriod call deep in the menu code.
-           uxtheme, dwmapi and comctl32 are deliberately left as hard imports;
-           comctl32 in particular interacts with the activation context. -->
-      <DelayLoadDLLs>d2d1.dll;dwrite.dll;propsys.dll;winmm.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
+           every hard import is resolved N times over. Neither of these is
+           touched from DllMain: propsys is only reached from expression
+           evaluation, and winmm is a single timeBeginPeriod call deep in the
+           menu code. uxtheme, dwmapi and comctl32 are deliberately left as hard
+           imports; comctl32 in particular interacts with the activation context.
+
+           d2d1 and dwrite used to be listed here. They are not any more, because
+           the Direct2D renderer they served was unreachable and has been
+           deleted, so neither DLL is imported at all now. Leaving them listed
+           makes the linker emit LNK4199. -->
+      <DelayLoadDLLs>propsys.dll;winmm.dll;%(DelayLoadDLLs)</DelayLoadDLLs>
       <SetChecksum>true</SetChecksum>
       <IgnoreSpecificDefaultLibraries />
       <ImageHasSafeExceptionHandlers />
