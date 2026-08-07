@@ -195,16 +195,23 @@ function Wait-Heartbeat {
 }
 
 function Wait-Guest {
-    param([pscredential] $Cred, [int] $TimeoutSec)
+    param(
+        [pscredential] $Cred,
+        [int] $TimeoutSec,
+        # Only safe on the first connection. During early boot the guest can
+        # reject a perfectly good credential until the logon services are up,
+        # so bailing on the first rejection after a reboot would abort a run
+        # that was about to succeed.
+        [switch] $FailFastOnBadCredential
+    )
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $lastError = $null
     while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
         try { return New-PSSession -VMName $VMName -Credential $Cred -ErrorAction Stop }
         catch {
             $lastError = $_.Exception.Message
-            # A rejected password is not a transient condition. Retrying it for
-            # the full timeout just hides the real problem behind a long wait.
-            if ($lastError -match 'credential is invalid|user name or password|logon failure') {
+            if ($FailFastOnBadCredential -and
+                $lastError -match 'credential is invalid|user name or password|logon failure') {
                 Write-Bad "guest rejected the credentials: $lastError"
                 return $null
             }
@@ -217,7 +224,7 @@ function Wait-Guest {
 
 Write-Step 'Connect over PowerShell Direct'
 [void](Wait-Heartbeat)
-$session = Wait-Guest -Cred $Credential -TimeoutSec $BootTimeoutSec
+$session = Wait-Guest -Cred $Credential -TimeoutSec $BootTimeoutSec -FailFastOnBadCredential
 
 if (-not $session -and -not $CreateUser) {
     throw @"
