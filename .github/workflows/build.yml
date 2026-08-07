@@ -19,7 +19,14 @@ env:
 jobs:
   build:
     name: ${{ matrix.platform }}
-    runs-on: windows-latest
+    # Pinned rather than windows-latest. That image has moved to Visual Studio
+    # 18, which ships the v143 toolset for x86 and x64 but not for ARM64, so the
+    # ARM64 job failed at the toolset check with MSB8020 before compiling
+    # anything. windows-2022 has v143 for all three.
+    #
+    # Follow-up: retarget the projects off v143 so the runner image can float
+    # again. Until then this is pinned deliberately, not by neglect.
+    runs-on: windows-2022
 
     strategy:
       fail-fast: false

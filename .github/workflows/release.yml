@@ -22,7 +22,9 @@ env:
 jobs:
   build:
     name: Build ${{ matrix.platform }}
-    runs-on: windows-latest
+    # See build.yml: windows-latest is on Visual Studio 18, which has no v143
+    # ARM64 toolset, so the ARM64 build fails with MSB8020 before compiling.
+    runs-on: windows-2022
     strategy:
       fail-fast: true
       matrix:
