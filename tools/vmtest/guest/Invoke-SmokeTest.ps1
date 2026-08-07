@@ -136,6 +136,9 @@ public static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder name,
 
 public const uint GW_HWNDNEXT   = 2;
 public const uint WM_CONTEXTMENU = 0x007B;
+public const uint WM_KEYDOWN     = 0x0100;
+public const uint WM_KEYUP       = 0x0101;
+public const int  VK_ESCAPE      = 0x1B;
 
 public const uint MN_GETHMENU     = 0x01E1;
 public const uint MIIM_STRING     = 0x00000040;
@@ -401,12 +404,15 @@ try {
         }
     }
 
-    # Close the menu and let Explorer settle. EndMenu cancels the active menu
-    # directly; SendKeys would depend on System.Windows.Forms having been loaded
-    # by the screenshot helper, which does not run if the screenshot failed, and
-    # on the keystroke reaching the right window.
+    # Close the menu. EndMenu only cancels a menu owned by the calling thread,
+    # and this one belongs to Explorer, so posting Escape to the menu window is
+    # what actually dismisses it. EndMenu is kept as a harmless fallback.
+    if ($popup -ne [IntPtr]::Zero) {
+        [void][VmTest.Native]::PostMessageW($popup, [VmTest.Native]::WM_KEYDOWN, [IntPtr][VmTest.Native]::VK_ESCAPE, [IntPtr]::Zero)
+        [void][VmTest.Native]::PostMessageW($popup, [VmTest.Native]::WM_KEYUP, [IntPtr][VmTest.Native]::VK_ESCAPE, [IntPtr]::Zero)
+    }
     [void][VmTest.Native]::EndMenu()
-    Start-Sleep -Milliseconds 300
+    Start-Sleep -Milliseconds 500
 
     # A menu left open would keep Explorer in a modal loop and make every check
     # below it unreliable.
@@ -422,13 +428,25 @@ try {
     # 4. Nothing was logged as an error. The DLL writes shell.log next to itself.
     $logPath = Join-Path $InstallDir 'shell.log'
     if (Test-Path $logPath) {
-        $errors = @(Select-String -Path $logPath -Pattern '\berror\b' -SimpleMatch:$false -ErrorAction SilentlyContinue |
+        $errors = @(Select-String -Path $logPath -Pattern '\[error\]' -ErrorAction SilentlyContinue |
                     ForEach-Object { $_.Line.Trim() })
         $result.logErrors = $errors
         Add-Check 'no errors in shell.log' ($errors.Count -eq 0) ($errors -join ' | ')
+
+        # Warnings were previously invisible here, which is how "config file not
+        # found" -- the reason the menu was the stock Windows one -- went
+        # unreported across two runs while this check passed. For a
+        # configuration that is supposed to load cleanly, a warning is a
+        # failure.
+        $warnings = @(Select-String -Path $logPath -Pattern '\[warning\]' -ErrorAction SilentlyContinue |
+                      ForEach-Object { $_.Line.Trim() })
+        $result.logWarnings = $warnings
+        Add-Check 'no warnings in shell.log' ($warnings.Count -eq 0) ($warnings -join ' | ')
     }
     else {
-        Add-Check 'no errors in shell.log' $true 'no log file written'
+        # No log at all means the extension never initialised far enough to
+        # write its banner, which is itself a failure rather than a clean run.
+        Add-Check 'shell.log was written' $false "expected $logPath"
     }
 
     # 5. No new crash report for explorer.
