@@ -1,4 +1,4 @@
-#include <pch.h>
+﻿#include <pch.h>
 #include "Include/Theme.h"
 #include "Include/ContextMenu.h"
 #include "Include/stb_image_write.h"
@@ -5196,54 +5196,6 @@ namespace Nilesoft
 
 		HHOOK m_hHook = NULL;
 
-		inline void fix_ugly_flicker()
-		{
-			LARGE_INTEGER freq, now0, now1;
-			::QueryPerformanceFrequency(&freq); // hz
-
-			// this absurd code makes Sleep() more accurate
-			// - without it, Sleep() is not even +-10ms accurate
-			// - with it, Sleep is around +-1.5 ms accurate
-			TIMECAPS tc;
-
-			::timeGetDevCaps(&tc, sizeof(tc));
-			int ms_granularity = tc.wPeriodMin;
-			::timeBeginPeriod(ms_granularity); // begin accurate Sleep() !
-
-			::QueryPerformanceCounter(&now0);
-
-			// ask DWM where the vertical blank falls
-			DWM_TIMING_INFO dti;
-			::memset(&dti, 0, sizeof(dti));
-			dti.cbSize = sizeof(dti);
-
-			::DwmGetCompositionTimingInfo(NULL, &dti);
-			::QueryPerformanceCounter(&now1);
-
-			// - DWM told us about SOME vertical blank
-			//   - past or future, possibly many frames away
-			// - convert that into the NEXT vertical blank
-			__int64 period = (__int64)dti.qpcRefreshPeriod;
-			__int64 dt = (__int64)dti.qpcVBlank - (__int64)now1.QuadPart;
-			__int64 w, m;
-
-			if(dt >= 0)
-				w = dt / period;
-			else // dt < 0
-			{
-				// reach back to previous period - so m represents consistent position within phase
-				w = -1 + dt / period;
-			}
-
-			// uncomment this to see worst-case behavior
-			// dt += (sint_64_t)(0.5 * period);
-			m = dt - (period * w);
-			assert(m >= 0);
-			assert(m < period);
-			double m_ms = 1000.0 * m / (double)freq.QuadPart;
-			::Sleep((int)round(m_ms));
-			::timeEndPeriod(ms_granularity);
-		}
 		LRESULT __stdcall ContextMenu::MenuSubClassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam,
 														[[maybe_unused]] UINT_PTR uIdSubclass,
 														DWORD_PTR dwRefData)
@@ -5355,8 +5307,32 @@ namespace Nilesoft
 						//const int cyBorder = 2;
 						//InflateRect((LPRECT)lParam, -cxBorder, -cyBorder);
 					}
-					fix_ugly_flicker();
-					//::DwmFlush();// wait till finished
+					// No vblank wait here. What used to sit on this line was a
+					// verbatim paste of a drag-resize hack (SO 53000292), which
+					// mitigates DWM stretch-filling stale pixels while the user
+					// drags a window border. A popup menu is created, sized,
+					// shown and destroyed; it is never dragged, and it has no
+					// stale contents to stretch, so the artifact it targets
+					// cannot occur here. The same answer's actual fix, returning
+					// WVR_VALIDRECTS, was never taken - only the part its author
+					// called a heuristic.
+					//
+					// Known: the reveal that follows (blurry window + accent
+					// policy, layer window, shadow raster, UpdateLayeredWindow,
+					// SetWindowRgn, the DeferWindowPos show) measures 9-18 ms, so
+					// it cannot fit one 6.06 ms period at 165 Hz or 8.33 ms at
+					// 120 Hz whatever phase it starts at - DWM was sampling it
+					// mid-flight with the sleep in place anyway. Assumed, not
+					// measured: that this also holds at 60 Hz, where 11.5 ms
+					// would fit inside 16.7 ms.
+					//
+					// If a one-frame artifact ever does show up at 60 Hz - a
+					// themed slab with no items, or items over bare desktop - fix
+					// the reveal ordering in show_layers rather than putting a
+					// sleep back on this path. Do not promote the DwmFlush that
+					// used to be commented out below either: same phase, and it
+					// is an unbounded wait on dwm.exe taken on the thread pumping
+					// TrackPopupMenuEx with capture held.
 					return lret;
 				}
 				//BOOL OnWindowPosChanging(HWND hwnd, LPWINDOWPOS pwp)

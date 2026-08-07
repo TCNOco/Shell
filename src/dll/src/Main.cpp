@@ -38,9 +38,10 @@ Version Build
 #pragma comment(lib, "Comctl32.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "WindowsCodecs.lib")
-#pragma comment(lib, "d2d1")
-#pragma comment(lib, "dwrite")
-#pragma comment(lib, "Winmm.lib")
+// d2d1, dwrite and Winmm were here. Nothing references them any more: the
+// Direct2D renderer was unreachable, and the vblank sleep that was winmm's only
+// caller is gone. Linking an unreferenced import lib is silent, so these were
+// harmless, but they suggested dependencies the binary does not have.
 #pragma comment(lib, "oleaut32.lib")
 #pragma comment(lib, "Shlwapi.lib")
 
