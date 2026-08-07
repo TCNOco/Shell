@@ -33,19 +33,21 @@ Set-StrictMode -Version Latest
 
 Write-Host "installing from $PayloadDir to $InstallDir"
 
-# The config step silently did not run twice, and reasoning about parameter
-# binding did not settle it, so the bound values and the payload tree are
-# reported outright.
+# Kept: a mis-bound switch here disabled the test configuration for eight runs
+# while every other line of output looked correct, so the values that decide
+# what this script does are always reported.
 Write-Host "params: NoConfig=$NoConfig NoTreat=$NoTreat"
-Write-Host "payload tree:"
-if (Test-Path $PayloadDir) {
+
+if (-not (Test-Path $PayloadDir)) {
+    throw "payload directory does not exist: $PayloadDir"
+}
+# The full tree is only worth printing when something is being diagnosed.
+if ($VerbosePreference -ne 'SilentlyContinue') {
+    Write-Host "payload tree:"
     Get-ChildItem $PayloadDir -Recurse | ForEach-Object {
         $rel = $_.FullName.Substring($PayloadDir.Length)
         Write-Host ("  {0} {1}" -f $(if ($_.PSIsContainer) { 'dir ' } else { 'file' }), $rel)
     }
-}
-else {
-    Write-Host "  !! $PayloadDir does not exist"
 }
 
 # shell.exe is linked as SubSystem=Windows. Invoking a GUI-subsystem binary with
