@@ -33,6 +33,21 @@ Set-StrictMode -Version Latest
 
 Write-Host "installing from $PayloadDir to $InstallDir"
 
+# The config step silently did not run twice, and reasoning about parameter
+# binding did not settle it, so the bound values and the payload tree are
+# reported outright.
+Write-Host "params: NoConfig=$NoConfig NoTreat=$NoTreat"
+Write-Host "payload tree:"
+if (Test-Path $PayloadDir) {
+    Get-ChildItem $PayloadDir -Recurse | ForEach-Object {
+        $rel = $_.FullName.Substring($PayloadDir.Length)
+        Write-Host ("  {0} {1}" -f $(if ($_.PSIsContainer) { 'dir ' } else { 'file' }), $rel)
+    }
+}
+else {
+    Write-Host "  !! $PayloadDir does not exist"
+}
+
 # shell.exe is linked as SubSystem=Windows. Invoking a GUI-subsystem binary with
 # the call operator returns immediately without waiting and never sets
 # $LASTEXITCODE, so registration would race the checks that follow it. Every
