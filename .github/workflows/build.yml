@@ -44,12 +44,44 @@ jobs:
             -p:Configuration=${{ env.CONFIGURATION }} `
             -p:Platform=${{ matrix.platform }}
 
+      # The compiler diagnostics are written to a file as well as the console.
+      # Workflow logs need a signed-in session to read, so on a failure in an
+      # architecture that cannot be built locally the actual error is otherwise
+      # unreachable; the artifact below is not.
       - name: Build
         shell: pwsh
         run: |
           msbuild -m ${{ env.SOLUTION }} `
             -p:Configuration=${{ env.CONFIGURATION }} `
-            -p:Platform=${{ matrix.platform }}
+            -p:Platform=${{ matrix.platform }} `
+            -fileLogger "-fileLoggerParameters:LogFile=build-${{ matrix.platform }}.log;Verbosity=normal" `
+            "-consoleLoggerParameters:Summary;ShowTimestamp"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: buildlog-${{ matrix.platform }}
+          path: build-${{ matrix.platform }}.log
+          if-no-files-found: warn
+
+      # Repeated into the job summary, which is readable without signing in.
+      - name: Surface errors
+        if: failure()
+        shell: pwsh
+        run: |
+          $log = "build-${{ matrix.platform }}.log"
+          if (Test-Path $log) {
+            $errs = Select-String -Path $log -Pattern ': error |: fatal error ' |
+                    Select-Object -First 40 -ExpandProperty Line
+            if ($errs) {
+              "## ${{ matrix.platform }} build errors`n" | Out-File $env:GITHUB_STEP_SUMMARY -Append
+              '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
+              $errs | Out-File $env:GITHUB_STEP_SUMMARY -Append
+              '```' | Out-File $env:GITHUB_STEP_SUMMARY -Append
+              $errs | ForEach-Object { Write-Host $_ }
+            }
+          }
 
       # The x64 build runs the suite automatically as a post-build step. The
       # cross-compiled builds cannot run on the host, so invoke it explicitly
