@@ -28,27 +28,45 @@ its items but still sets `MIIM_STRING` with the title in `dwTypeData`, so
 
 ## One-time VM setup
 
-You need Hyper-V and an elevated shell on the host.
+Start from any Windows 11 guest. 4 GB RAM and 2 vCPU is plenty. Generation 2
+with Secure Boot on is fine — shell extensions do not require Authenticode, so
+an unsigned build still loads.
 
-1. Create a Windows 11 VM. 4 GB RAM and 2 vCPU is plenty. Generation 2, Secure
-   Boot on — the extension is unsigned but shell extensions do not require
-   Authenticode, so this still loads.
-2. Inside the guest:
-   - Create a local user (default assumed here: `tester`) and make it an admin.
-   - **Enable auto-logon** for that user. The smoke test drives a real desktop,
-     so a user must be logged in and a session must exist. Without this the run
-     produces no `result.json`.
-   - `Set-ExecutionPolicy -Scope LocalMachine RemoteSigned`
-   - Turn off anything that would interfere with a synthesised right-click:
-     screen saver, lock screen timeout, sleep.
-3. Shut the guest down cleanly, then from the host:
+From an **elevated** PowerShell on the host:
 
-   ```powershell
-   Checkpoint-VM -Name shell-test -SnapshotName clean
-   ```
+```powershell
+.\Setup-TestVM.ps1 -VMName 'Windows 11 2025-10' -CreateUser
+```
+
+That script does the whole thing over PowerShell Direct: creates the test
+account, enables auto-logon, sets the execution policy, disables the screen
+saver and sleep timeouts, reports whether Smart App Control or Defender will
+interfere, reboots, **verifies an interactive session actually came up**, then
+shuts down and takes the `clean` checkpoint. Its output is transcribed to
+`runs/setup.log`.
+
+The interactive-session check is the part that matters. The smoke test drives a
+real desktop, so if auto-logon silently fails every later run produces no
+result at all; the setup fails loudly instead.
+
+> Auto-logon stores the account password in plaintext under
+> `HKLM\...\Winlogon`. That is how Windows auto-logon works. Only point this at
+> a disposable VM with a throwaway account.
 
 The checkpoint is restored before *and* after every run, so the guest never
-accumulates state between runs.
+accumulates state.
+
+### Elevation
+
+Hyper-V cmdlets need either an elevated shell or membership of the local
+`Hyper-V Administrators` group. If you would rather not elevate every run:
+
+```powershell
+Add-LocalGroupMember -Group 'Hyper-V Administrators' -Member $env:USERNAME
+```
+
+That needs one sign-out to take effect. `Invoke-VMTest.ps1` checks for the
+capability rather than for an elevated token, so it works either way.
 
 ## Running
 

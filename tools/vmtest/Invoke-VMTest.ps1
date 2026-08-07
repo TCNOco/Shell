@@ -1,5 +1,4 @@
 #Requires -Version 5.1
-#Requires -RunAsAdministrator
 <#
 .SYNOPSIS
     Build, deploy into a Hyper-V VM, open a real context menu, assert, revert.
@@ -37,6 +36,7 @@ param(
     [ValidateSet('x64', 'x86', 'arm64')] [string] $Platform = 'x64',
     [string] $Configuration = 'release',
     [string] $GuestUser = 'tester',
+    [pscredential] $Credential,
     [string] $InstallDir = 'C:\Program Files\TCNO Nilesoft Shell',
     [string] $ArtifactDir,
     [switch] $SkipBuild,
@@ -108,6 +108,22 @@ Write-Ok "staged $((Get-ChildItem $payload -Recurse -File).Count) file(s)"
 # ------------------------------------------------------------------- vm
 
 Write-Step "Restore '$Checkpoint' on $VMName"
+
+# Deliberately not '#Requires -RunAsAdministrator': membership of the local
+# Hyper-V Administrators group is enough, and requiring elevation would lock
+# those users out for no reason. Check the capability rather than the token.
+try { $null = Get-VM -ErrorAction Stop }
+catch {
+    throw @"
+Cannot query Hyper-V: $($_.Exception.Message)
+
+Either run this from an elevated PowerShell, or grant your account standing
+access and sign out once:
+
+    Add-LocalGroupMember -Group 'Hyper-V Administrators' -Member '$env:USERNAME'
+"@
+}
+
 $vm = Get-VM -Name $VMName -ErrorAction Stop
 if (-not (Get-VMCheckpoint -VMName $VMName -Name $Checkpoint -ErrorAction SilentlyContinue)) {
     throw "VM '$VMName' has no checkpoint named '$Checkpoint'. See tools/vmtest/README.md."
@@ -119,8 +135,14 @@ Write-Ok 'checkpoint restored'
 Write-Step 'Start and wait for guest'
 Start-VM -Name $VMName -ErrorAction SilentlyContinue | Out-Null
 
-$cred = Get-Credential -UserName "$VMName\$GuestUser" `
-                       -Message "Guest credentials for $VMName (used for PowerShell Direct)"
+# PowerShell Direct authenticates against an account inside the guest, so the
+# username must not be prefixed with the VM name -- the VM name is a host-side
+# label and has nothing to do with the guest's computer name.
+if (-not $Credential) {
+    $Credential = Get-Credential -UserName $GuestUser `
+                                 -Message "Guest account for '$VMName' (PowerShell Direct)"
+}
+$cred = $Credential
 
 $sw = [Diagnostics.Stopwatch]::StartNew()
 $session = $null

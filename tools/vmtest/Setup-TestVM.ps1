@@ -1,0 +1,271 @@
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Takes a fresh Windows 11 Hyper-V guest to a state the smoke test can drive,
+    then creates the baseline checkpoint.
+
+.DESCRIPTION
+    Run once, elevated, on the host. Everything inside the guest is done over
+    PowerShell Direct, so the VM needs no network.
+
+    The smoke test opens a real context menu on a real desktop, which means the
+    guest must have an interactive session already logged in when the test runs.
+    That is what most of this script is arranging.
+
+.PARAMETER VMName
+    Existing Hyper-V VM. Quote it if the name contains spaces.
+
+.PARAMETER Credential
+    An account inside the guest that is a local administrator. If -CreateUser is
+    given this account is created; otherwise it must already exist.
+
+.NOTES
+    Auto-logon stores the account password in plaintext under
+    HKLM\...\Winlogon. That is how Windows auto-logon works and there is no way
+    around it short of the LSA secret that Sysinternals Autologon uses. Only
+    ever point this at a disposable test VM with a throwaway account.
+
+.EXAMPLE
+    .\Setup-TestVM.ps1 -VMName 'Windows 11 2025-10' -CreateUser
+#>
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)] [string] $VMName,
+    [pscredential] $Credential,
+    [string] $GuestUser = 'tester',
+    [string] $Checkpoint = 'clean',
+    [switch] $CreateUser,
+    [switch] $Force,
+    [int] $BootTimeoutSec = 300,
+    [string] $LogPath = (Join-Path $PSScriptRoot 'runs\setup.log')
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+# This usually runs in a separate elevated window, so transcribe it: the log is
+# how anyone outside that window finds out what happened.
+New-Item -ItemType Directory -Force -Path (Split-Path $LogPath -Parent) | Out-Null
+try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
+Start-Transcript -Path $LogPath -Force | Out-Null
+trap { Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red; Stop-Transcript | Out-Null; break }
+
+function Write-Step { param([string] $m) Write-Host "`n=== $m" -ForegroundColor Cyan }
+function Write-Ok   { param([string] $m) Write-Host "    $m" -ForegroundColor Green }
+function Write-Bad  { param([string] $m) Write-Host "    $m" -ForegroundColor Red }
+function Write-Note { param([string] $m) Write-Host "    $m" -ForegroundColor Yellow }
+
+# ------------------------------------------------------------------ access
+
+Write-Step 'Check Hyper-V access'
+try { $null = Get-VM -ErrorAction Stop }
+catch {
+    throw @"
+Cannot query Hyper-V: $($_.Exception.Message)
+
+Run this from an elevated PowerShell, or add your account to the local
+'Hyper-V Administrators' group so Hyper-V cmdlets work without elevation:
+
+    Add-LocalGroupMember -Group 'Hyper-V Administrators' -Member '$env:USERNAME'
+
+That change needs a sign-out to take effect.
+"@
+}
+Write-Ok 'ok'
+
+$vm = Get-VM -Name $VMName -ErrorAction Stop
+Write-Ok "'$($vm.Name)'  state=$($vm.State)  gen=$($vm.Generation)  vcpu=$($vm.ProcessorCount)  mem=$([math]::Round($vm.MemoryStartup/1GB,1))GB"
+
+$existing = Get-VMCheckpoint -VMName $VMName -ErrorAction SilentlyContinue
+if ($existing) {
+    Write-Note "existing checkpoints: $(($existing | ForEach-Object Name) -join ', ')"
+}
+if (($existing | Where-Object Name -eq $Checkpoint) -and -not $Force) {
+    throw "Checkpoint '$Checkpoint' already exists. Pass -Force to replace it."
+}
+
+# The guest service interface is what PowerShell Direct rides on.
+$gsi = Get-VMIntegrationService -VMName $VMName -Name 'Guest Service Interface' -ErrorAction SilentlyContinue
+if ($gsi -and -not $gsi.Enabled) {
+    Write-Note 'enabling Guest Service Interface'
+    Enable-VMIntegrationService -VMName $VMName -Name 'Guest Service Interface'
+}
+
+if (-not $Credential) {
+    $Credential = Get-Credential -UserName $GuestUser `
+        -Message "Guest administrator account for '$VMName'. With -CreateUser this account will be created."
+}
+
+# ------------------------------------------------------------------- boot
+
+Write-Step 'Start guest'
+if ($vm.State -ne 'Running') { Start-VM -Name $VMName; Write-Ok 'started' }
+else { Write-Ok 'already running' }
+
+function Wait-Guest {
+    param([pscredential] $Cred, [int] $TimeoutSec)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
+        try { return New-PSSession -VMName $VMName -Credential $Cred -ErrorAction Stop }
+        catch { Start-Sleep -Seconds 5 }
+    }
+    return $null
+}
+
+Write-Step 'Connect over PowerShell Direct'
+$session = Wait-Guest -Cred $Credential -TimeoutSec $BootTimeoutSec
+
+if (-not $session -and $CreateUser) {
+    Write-Note 'could not sign in with that account; it may not exist yet'
+    Write-Note 'supply an account that already works so the test account can be created'
+    $bootstrap = Get-Credential -Message "An existing guest admin account for '$VMName'"
+    $session = Wait-Guest -Cred $bootstrap -TimeoutSec 120
+    if (-not $session) { throw 'could not connect to the guest with either account' }
+
+    Write-Step "Create guest account '$GuestUser'"
+    Invoke-Command -Session $session -ScriptBlock {
+        param($user, $plain)
+        $sec = ConvertTo-SecureString $plain -AsPlainText -Force
+        if (-not (Get-LocalUser -Name $user -ErrorAction SilentlyContinue)) {
+            New-LocalUser -Name $user -Password $sec -AccountNeverExpires -PasswordNeverExpires | Out-Null
+        } else {
+            Set-LocalUser -Name $user -Password $sec
+        }
+        Add-LocalGroupMember -Group 'Administrators' -Member $user -ErrorAction SilentlyContinue
+    } -ArgumentList $GuestUser, $Credential.GetNetworkCredential().Password
+    Write-Ok "created / updated '$GuestUser'"
+
+    Remove-PSSession $session
+    $session = Wait-Guest -Cred $Credential -TimeoutSec 120
+}
+
+if (-not $session) { throw "guest did not accept PowerShell Direct within ${BootTimeoutSec}s" }
+Write-Ok 'connected'
+
+try {
+    # -------------------------------------------------------------- prepare
+
+    Write-Step 'Configure guest'
+    $report = Invoke-Command -Session $session -ScriptBlock {
+        param($user, $plain)
+
+        $out = [ordered]@{}
+
+        # Auto-logon. The smoke test needs an interactive session to exist
+        # before it runs; without this there is no desktop to right-click.
+        $wl = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+        Set-ItemProperty $wl -Name AutoAdminLogon  -Value '1'   -Type String
+        Set-ItemProperty $wl -Name DefaultUserName -Value $user -Type String
+        Set-ItemProperty $wl -Name DefaultPassword -Value $plain -Type String
+        Set-ItemProperty $wl -Name DefaultDomainName -Value $env:COMPUTERNAME -Type String
+        Remove-ItemProperty $wl -Name AutoLogonCount -ErrorAction SilentlyContinue
+        $out.autoLogon = 'configured'
+
+        Set-ExecutionPolicy -Scope LocalMachine RemoteSigned -Force
+        $out.executionPolicy = (Get-ExecutionPolicy -Scope LocalMachine).ToString()
+
+        # Anything that blanks or locks the screen will break a synthesised
+        # right-click, and a sleeping VM cannot be driven at all.
+        $desk = 'HKCU:\Control Panel\Desktop'
+        Set-ItemProperty $desk -Name ScreenSaveActive -Value '0' -Type String -ErrorAction SilentlyContinue
+        Set-ItemProperty $desk -Name ScreenSaverIsSecure -Value '0' -Type String -ErrorAction SilentlyContinue
+        powercfg /change monitor-timeout-ac 0  2>&1 | Out-Null
+        powercfg /change standby-timeout-ac 0  2>&1 | Out-Null
+        powercfg /change hibernate-timeout-ac 0 2>&1 | Out-Null
+        $out.power = 'timeouts disabled'
+
+        # Do not lock on resume.
+        $sys = 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\Personalization'
+        New-Item $sys -Force | Out-Null
+        Set-ItemProperty $sys -Name NoLockScreen -Value 1 -Type DWord
+
+        # Explorer restarts constantly during testing; suppress the balloon and
+        # keep folder windows in one process so the module check is unambiguous.
+        $adv = 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+        Set-ItemProperty $adv -Name SeparateProcess -Value 0 -Type DWord -ErrorAction SilentlyContinue
+
+        $out.os = (Get-CimInstance Win32_OperatingSystem).Caption
+        $out.build = "$([Environment]::OSVersion.Version) UBR=$((Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').UBR)"
+        $out.psVersion = $PSVersionTable.PSVersion.ToString()
+
+        # A shell extension does not need to be signed to load, but Smart App
+        # Control blocks unsigned binaries outright, so it has to be off.
+        try {
+            $sac = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -Name VerifiedAndReputablePolicyState -ErrorAction Stop).VerifiedAndReputablePolicyState
+        } catch { $sac = 0 }
+        $out.smartAppControl = switch ($sac) { 0 { 'off' } 1 { 'ENFORCED' } 2 { 'evaluation' } default { "unknown($sac)" } }
+
+        try { $out.defender = (Get-MpComputerStatus).RealTimeProtectionEnabled } catch { $out.defender = 'unknown' }
+
+        $out
+    } -ArgumentList $GuestUser, $Credential.GetNetworkCredential().Password
+
+    foreach ($k in $report.Keys) { Write-Ok ("{0,-18} {1}" -f $k, $report[$k]) }
+
+    if ($report.smartAppControl -eq 'ENFORCED') {
+        Write-Bad 'Smart App Control is enforced in the guest and will block the unsigned build.'
+        Write-Bad 'Turn it off in the guest (Windows Security > App & browser control), then re-run.'
+    }
+    if ($report.defender -eq $true) {
+        Write-Note 'Defender real-time protection is on. The DLL patches import tables,'
+        Write-Note 'which is exactly what heuristics look for. Consider excluding the'
+        Write-Note 'install folder in the guest if you see spurious failures.'
+    }
+
+    # ---------------------------------------------------- verify auto-logon
+
+    Write-Step 'Reboot and verify auto-logon'
+    Invoke-Command -Session $session -ScriptBlock { Restart-Computer -Force }
+    Remove-PSSession $session -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 15
+
+    $session = Wait-Guest -Cred $Credential -TimeoutSec $BootTimeoutSec
+    if (-not $session) { throw 'guest did not come back after reboot' }
+
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    $loggedOn = $false
+    while ($sw.Elapsed.TotalSeconds -lt 180) {
+        $loggedOn = Invoke-Command -Session $session -ScriptBlock {
+            # An explorer.exe owned by the target user means a real interactive
+            # session exists, which is precisely what the smoke test needs.
+            $p = Get-CimInstance Win32_Process -Filter "Name='explorer.exe'" -ErrorAction SilentlyContinue
+            [bool]($p | ForEach-Object { (Invoke-CimMethod -InputObject $_ -MethodName GetOwner).User } |
+                   Where-Object { $_ })
+        }
+        if ($loggedOn) { break }
+        Start-Sleep -Seconds 5
+    }
+
+    if ($loggedOn) { Write-Ok "interactive session present after $([int]$sw.Elapsed.TotalSeconds)s" }
+    else {
+        Write-Bad 'no interactive session found; auto-logon did not take effect.'
+        Write-Bad 'The smoke test cannot run without one. Check the Winlogon values in the guest.'
+        throw 'auto-logon verification failed'
+    }
+
+    # ------------------------------------------------------------ baseline
+
+    Write-Step "Create checkpoint '$Checkpoint'"
+    Remove-PSSession $session -ErrorAction SilentlyContinue
+    $session = $null
+
+    Stop-VM -Name $VMName -Force
+    while ((Get-VM -Name $VMName).State -ne 'Off') { Start-Sleep -Seconds 2 }
+
+    if ($existing | Where-Object Name -eq $Checkpoint) {
+        Remove-VMCheckpoint -VMName $VMName -Name $Checkpoint -Confirm:$false
+        Write-Note "replaced existing '$Checkpoint'"
+    }
+    Checkpoint-VM -Name $VMName -SnapshotName $Checkpoint
+    Write-Ok "checkpoint '$Checkpoint' created"
+
+    Write-Host ''
+    Write-Ok 'Guest is ready. Run the loop with:'
+    Write-Host ""
+    Write-Host "    .\Invoke-VMTest.ps1 -VMName '$VMName' -GuestUser '$GuestUser'" -ForegroundColor White
+    Write-Host ''
+}
+finally {
+    if ($session) { Remove-PSSession $session -ErrorAction SilentlyContinue }
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+}

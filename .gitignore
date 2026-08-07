@@ -51,3 +51,6 @@ src/packages/
 *.ipdb
 *.iobj
 *.ilk
+
+# VM test artifacts: payloads, screenshots, logs, transcripts
+tools/vmtest/runs/
