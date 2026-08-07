@@ -123,21 +123,95 @@ if (-not $CreateUser -and -not $PSBoundParameters.ContainsKey('GuestUser')) {
 # ------------------------------------------------------------------- boot
 
 Write-Step 'Start guest'
-if ($vm.State -ne 'Running') { Start-VM -Name $VMName; Write-Ok 'started' }
-else { Write-Ok 'already running' }
+
+# Re-query rather than trusting the object captured earlier: a VM that was mid
+# shutdown when this script started still reports Running for a while, and
+# acting on that stale value means talking to a guest that is on its way down.
+function Wait-StableState {
+    param([int] $TimeoutSec = 180)
+    $transitional = 'Stopping', 'Starting', 'Saving', 'Pausing', 'Resuming', 'Reset', 'Snapshotting'
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
+        $s = (Get-VM -Name $VMName).State
+        if ($s -notin $transitional) { return $s }
+        Write-Note "state=$s, waiting for it to settle"
+        Start-Sleep -Seconds 3
+    }
+    throw "VM stayed in a transitional state for ${TimeoutSec}s"
+}
+
+$state = Wait-StableState
+Write-Ok "state=$state"
+if ($state -ne 'Running') {
+    Start-VM -Name $VMName
+    $state = Wait-StableState
+    Write-Ok "started (state=$state)"
+}
+
+# The heartbeat service coming up is the signal that the guest OS is far enough
+# along to authenticate anything. Without this the first credential attempt
+# races the boot and fails for reasons that have nothing to do with the password.
+function Wait-Heartbeat {
+    param([int] $TimeoutSec = 240)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
+        $hb = Get-VMIntegrationService -VMName $VMName -Name Heartbeat -ErrorAction SilentlyContinue
+        if ($hb -and $hb.PrimaryStatusDescription -eq 'OK') {
+            Write-Ok "guest heartbeat OK after $([int]$sw.Elapsed.TotalSeconds)s"
+            return $true
+        }
+        Start-Sleep -Seconds 3
+    }
+    Write-Note 'no guest heartbeat; continuing anyway'
+    return $false
+}
 
 function Wait-Guest {
     param([pscredential] $Cred, [int] $TimeoutSec)
     $sw = [Diagnostics.Stopwatch]::StartNew()
+    $lastError = $null
     while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
         try { return New-PSSession -VMName $VMName -Credential $Cred -ErrorAction Stop }
-        catch { Start-Sleep -Seconds 5 }
+        catch {
+            $lastError = $_.Exception.Message
+            # A rejected password is not a transient condition. Retrying it for
+            # the full timeout just hides the real problem behind a long wait.
+            if ($lastError -match 'credential is invalid|user name or password|logon failure') {
+                Write-Bad "guest rejected the credentials: $lastError"
+                return $null
+            }
+            Start-Sleep -Seconds 5
+        }
     }
+    Write-Bad "timed out after ${TimeoutSec}s; last error: $lastError"
     return $null
 }
 
 Write-Step 'Connect over PowerShell Direct'
+[void](Wait-Heartbeat)
 $session = Wait-Guest -Cred $Credential -TimeoutSec $BootTimeoutSec
+
+if (-not $session -and -not $CreateUser) {
+    throw @"
+Could not sign in to the guest as '$GuestUser'.
+
+Things that cause this:
+
+  * Wrong password. PowerShell Direct authenticates against the guest, so it
+    must be that account's password inside the VM, not anything on the host.
+
+  * The guest account is a Microsoft Account. PowerShell Direct generally
+    cannot authenticate one. Create a local account in the guest instead and
+    re-run with:
+
+        .\Setup-TestVM.ps1 -VMName '$VMName' -CreateUser
+
+    That prompts for a new throwaway local admin, then for an existing account
+    once to bootstrap it.
+
+  * The guest was still booting or shutting down. It is now '$((Get-VM -Name $VMName).State)'.
+"@
+}
 
 if (-not $session -and $CreateUser) {
     Write-Note 'could not sign in with that account; it may not exist yet'
