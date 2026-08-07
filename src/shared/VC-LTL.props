@@ -43,4 +43,22 @@ If you are not satisfied with the default search order, you can modify this file
 		<Import Project="$(VC_LTL_Root)\Config\config.props" Condition="Exists('$(VC_LTL_Root)\Config\config.props')"/>
 		<Import Project="$(VC_LTL_Root)\ltlvcrt.props" Condition="(!Exists('$(VC_LTL_Root)\Config\config.props')) And (Exists('$(VC_LTL_Root)\ltlvcrt.props'))"/>
 	</ImportGroup>
+
+	<!--
+	Both imports above are conditional on the package being present, so without a
+	restore they simply do not happen and the build silently links the static
+	MSVC CRT instead. That is not a cosmetic difference: with VC-LTL shell.dll is
+	1331 KB and imports msvcrt.dll, without it 1525 KB with the CRT linked in.
+	Different CRT means a different heap, inside Explorer.
+
+	CI restores; a plain local `msbuild Shell.sln` did not, so the same commit
+	produced two different binaries with nothing saying so. Fail loudly instead.
+
+	To build deliberately without VC-LTL: -p:ShellAllowNoVCLTL=true
+	-->
+	<Target Name="ShellVerifyVCLTL" BeforeTargets="ClCompile"
+			Condition="'$(ShellAllowNoVCLTL)'!='true'">
+		<Error Condition="!Exists('$(VC_LTL_Root)\ltlvcrt.props') And !Exists('$(VC_LTL_Root)\Config\config.props')"
+			   Text="VC-LTL is not restored, so this build would silently link a different CRT than CI ships. Run: msbuild $(SolutionDir)Shell.sln -t:Restore -p:RestorePackagesConfig=true -p:Configuration=$(Configuration) -p:Platform=$(Platform)   (or use build.ps1, which does it for you). To build without VC-LTL on purpose, pass -p:ShellAllowNoVCLTL=true. Looked in: $(VC_LTL_Root)" />
+	</Target>
 </Project>

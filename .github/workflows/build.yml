@@ -41,13 +41,17 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
+      # One restore, and the same one build.ps1 runs locally. RestorePackagesConfig
+      # is what pulls VC-LTL, which lives in a packages.config; without it the
+      # VC-LTL.props imports silently no-op and the build links the static MSVC
+      # CRT instead of msvcrt.dll, producing a ~194 KB larger binary with a
+      # different heap. That divergence between CI and local builds was real
+      # until VC-LTL.props started erroring out on it.
       - name: Restore packages
         shell: pwsh
         run: |
-          # VC-LTL still uses packages.config, so it needs nuget restore.
-          # The WiX 5 installer project is SDK-style and needs an MSBuild restore.
-          nuget restore ${{ env.SOLUTION }}
           msbuild -t:Restore ${{ env.SOLUTION }} `
+            -p:RestorePackagesConfig=true `
             -p:Configuration=${{ env.CONFIGURATION }} `
             -p:Platform=${{ matrix.platform }}
 

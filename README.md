@@ -13,6 +13,31 @@ Powerful manager for Windows File Explorer context menu.
  <br>
 </p>
 
+Building
+------------------
+Needs Visual Studio 2022 Build Tools with the **Desktop development with C++**
+workload (the v143 toolset). Nothing has to be on PATH, and `nuget.exe` is not
+required — MSBuild does both restores.
+
+```powershell
+.\build.ps1                        # x64 release; -Platform x86|ARM64, -Rebuild
+.\tools\install-local.ps1          # elevated; installs and registers the build
+.\tools\install-local.ps1 -Uninstall
+```
+
+The restore step is not optional. VC-LTL arrives via a `packages.config`, which
+a plain `-t:Restore` skips, and `VC-LTL.props` imports it only `Condition="Exists(...)"` —
+so without it the build quietly links the static MSVC CRT instead of importing
+`msvcrt.dll`, giving a ~194 KB larger binary with a different heap than CI ships.
+That used to happen silently; the build now stops and says so. `build.ps1`
+restores correctly, and to build without VC-LTL on purpose pass
+`-p:ShellAllowNoVCLTL=true`.
+
+`install-local.ps1` refuses to run while another Shell build is registered —
+this fork has its own CLSIDs, so both can register at once and both would then
+hook `TrackPopupMenu`. It also preserves an existing `shell.nss` across
+reinstalls unless you pass `-ResetConfig`.
+
 ## Details
 <p>
 Shell is a context menu extender that lets you handpick the items to integrate into the Windows File Explorer context menu, create custom commands to access all your favorite web pages, files, and folders, and launch any application directly from the context menu.<br>

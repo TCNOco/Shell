@@ -37,11 +37,13 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
+      # See build.yml: RestorePackagesConfig is what pulls VC-LTL, and without it
+      # the build silently links a different CRT.
       - name: Restore packages
         shell: pwsh
         run: |
-          nuget restore ${{ env.SOLUTION }}
           msbuild -t:Restore ${{ env.SOLUTION }} `
+            -p:RestorePackagesConfig=true `
             -p:Configuration=${{ env.CONFIGURATION }} `
             -p:Platform=${{ matrix.platform }}
 
