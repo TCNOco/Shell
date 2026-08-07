@@ -102,6 +102,17 @@ whether a smoke-test failure is a real regression or a broken reader:
 
 Each of these produced a failure that looked like something else entirely.
 
+- **On Windows 11 the extension does nothing unless it is registered with
+  `-treat`.** Windows 11 serves its own context menu as a WinUI XAML island,
+  which never goes through `TrackPopupMenu`, so the hook has nothing to
+  intercept. The extension installs, registers, loads into Explorer, and is
+  invisible. `-treat` writes a `TreatAs` redirect from the modern menu's CLSID
+  to this one, which is what puts the classic menu -- and therefore this
+  extension -- back in the path. Diagnosed here by capturing the visible
+  top-level window classes on failure and finding
+  `Microsoft.UI.Content.PopupWindowSiteBridge` and
+  `XamlExplorerHostIslandWindow_WASDK` where a `#32768` menu was expected.
+
 - **PowerShell Direct usually needs the qualified `PCNAME\user` form.** The bare
   username is rejected with `The credential is invalid`, which is the same
   message you get for a wrong password, a blank password and a Microsoft
