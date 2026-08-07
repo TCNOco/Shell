@@ -37,11 +37,24 @@ param(
     [switch] $CreateUser,
     [switch] $Force,
     [int] $BootTimeoutSec = 300,
-    [string] $LogPath = (Join-Path $PSScriptRoot 'runs\setup.log')
+    [string] $LogPath
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+
+# $PSScriptRoot is normally populated, but it comes back empty when the script
+# is launched through ShellExecute (Start-Process -Verb RunAs), which is exactly
+# how this one gets elevated. Resolve the directory defensively rather than
+# relying on it, and never in a param default where a failure aborts before the
+# transcript that would explain it.
+$scriptDir = $PSScriptRoot
+if (-not $scriptDir -and $MyInvocation.MyCommand.Path) {
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $scriptDir) { $scriptDir = (Get-Location).Path }
+
+if (-not $LogPath) { $LogPath = Join-Path $scriptDir 'runs\setup.log' }
 
 # This usually runs in a separate elevated window, so transcribe it: the log is
 # how anyone outside that window finds out what happened.

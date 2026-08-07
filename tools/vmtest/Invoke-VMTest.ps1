@@ -48,8 +48,14 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-$repo = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+# $PSScriptRoot comes back empty when a script is launched through ShellExecute
+# (Start-Process -Verb RunAs), so resolve the directory defensively.
 $vmtest = $PSScriptRoot
+if (-not $vmtest -and $MyInvocation.MyCommand.Path) {
+    $vmtest = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+if (-not $vmtest) { $vmtest = (Get-Location).Path }
+$repo = Resolve-Path (Join-Path $vmtest '..\..')
 if (-not $ArtifactDir) {
     $ArtifactDir = Join-Path $vmtest ('runs\{0:yyyyMMdd-HHmmss}' -f (Get-Date))
 }
