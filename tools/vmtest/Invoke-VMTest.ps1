@@ -337,6 +337,14 @@ try {
         Write-Host "    menu items: $($r.menuItems -join ' | ')"
         if ($r.subMenuItems) { Write-Host "    submenu   : $($r.subMenuItems -join ' | ')" }
 
+        if ($r.latency) {
+            Write-Host ''
+            Write-Host ("    menu build latency over {0} samples:" -f $r.latency.samples)
+            Write-Host ("      cold  {0,7} ms  (includes config parse and font setup)" -f $r.latency.coldMs)
+            Write-Host ("      warm  min {0} ms / median {1} ms / max {2} ms" -f
+                        $r.latency.minMs, $r.latency.medianMs, $r.latency.maxMs)
+        }
+
         Write-Host ''
         if ($r.passed) {
             Write-Ok "PASS  $($r.checks.Count) checks"

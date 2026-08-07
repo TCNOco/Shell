@@ -36,7 +36,10 @@ param(
         'VMTEST_IMPORT_OK',       # a relative import resolved without the CWD hack
         'VMTEST_SENTINEL_MENU'    # the submenu itself exists, contents not asserted
     ),
-    [int] $MenuTimeoutMs = 6000
+    [int] $MenuTimeoutMs = 6000,
+    # Repeated open/close cycles timed after the assertions, to give menu build
+    # latency a number. 0 disables it.
+    [int] $LatencySamples = 20
 )
 
 $ErrorActionPreference = 'Stop'
@@ -453,6 +456,65 @@ try {
     $wer = Get-ChildItem "$env:ProgramData\Microsoft\Windows\WER\ReportQueue" -Directory -ErrorAction SilentlyContinue |
            Where-Object { $_.Name -like '*explorer.exe*' -and $_.CreationTime -gt (Get-Date).AddMinutes(-10) }
     Add-Check 'no explorer crash report' ($null -eq $wer -or @($wer).Count -eq 0)
+
+    # 6. Menu build latency.
+    #
+    # Time from asking for the menu to the popup being visible. That interval
+    # covers the work this project actually does per right-click: evaluating the
+    # configuration, building the item tree and measuring it. Without a number
+    # here, a codegen change like LTCG or a different allocator can only be
+    # argued for on principle.
+    #
+    # WM_CONTEXTMENU is used rather than synthesised input because it is
+    # deterministic and does not depend on cursor or focus state.
+    if ($LatencySamples -gt 0 -and $listView -ne [IntPtr]::Zero) {
+        $samples = @()
+        $lparam = [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF))
+
+        for ($n = 0; $n -lt $LatencySamples; $n++) {
+            # Make sure nothing is open before timing the next one.
+            $t0 = [Diagnostics.Stopwatch]::StartNew()
+            while ([VmTest.Native]::FindWindowByClass('#32768', [IntPtr]::Zero) -ne [IntPtr]::Zero -and
+                   $t0.ElapsedMilliseconds -lt 2000) { Start-Sleep -Milliseconds 5 }
+
+            $sw2 = [Diagnostics.Stopwatch]::StartNew()
+            [void][VmTest.Native]::PostMessageW($listView, [VmTest.Native]::WM_CONTEXTMENU, $listView, $lparam)
+
+            $h = [IntPtr]::Zero
+            while ($sw2.ElapsedMilliseconds -lt 5000) {
+                $c = [VmTest.Native]::FindWindowByClass('#32768', [IntPtr]::Zero)
+                if ($c -ne [IntPtr]::Zero -and [VmTest.Native]::IsWindowVisible($c)) { $h = $c; break }
+                Start-Sleep -Milliseconds 2
+            }
+            $sw2.Stop()
+
+            if ($h -ne [IntPtr]::Zero) {
+                $samples += [double]$sw2.Elapsed.TotalMilliseconds
+                [void][VmTest.Native]::PostMessageW($h, [VmTest.Native]::WM_KEYDOWN, [IntPtr][VmTest.Native]::VK_ESCAPE, [IntPtr]::Zero)
+                [void][VmTest.Native]::PostMessageW($h, [VmTest.Native]::WM_KEYUP, [IntPtr][VmTest.Native]::VK_ESCAPE, [IntPtr]::Zero)
+            }
+            Start-Sleep -Milliseconds 60
+        }
+
+        if ($samples.Count -ge 3) {
+            $sorted = $samples | Sort-Object
+            # The first sample carries one-off initialisation (config parse,
+            # font setup) and is reported separately rather than averaged in.
+            $warm = $samples[1..($samples.Count - 1)] | Sort-Object
+            $result.latency = [ordered]@{
+                samples = $samples.Count
+                coldMs  = [math]::Round($samples[0], 1)
+                minMs   = [math]::Round($warm[0], 1)
+                medianMs= [math]::Round($warm[[int]($warm.Count / 2)], 1)
+                maxMs   = [math]::Round($warm[-1], 1)
+                allMs   = @($samples | ForEach-Object { [math]::Round($_, 1) })
+            }
+            Write-Host ("  menu latency: cold {0}ms, warm min {1}ms median {2}ms max {3}ms over {4} samples" -f
+                        $result.latency.coldMs, $result.latency.minMs, $result.latency.medianMs,
+                        $result.latency.maxMs, $samples.Count)
+        }
+        Add-Check 'latency samples collected' ($samples.Count -ge 3) "$($samples.Count) of $LatencySamples"
+    }
 }
 catch {
     $null = $result.failures.Add("unhandled: $($_.Exception.Message)")
