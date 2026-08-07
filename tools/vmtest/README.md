@@ -118,6 +118,13 @@ Each of these produced a failure that looked like something else entirely.
   message you get for a wrong password, a blank password and a Microsoft
   Account. Run `whoami` inside the guest and use exactly what it prints. This
   cost six setup runs.
+- **A type cast in argument position is not a cast.** `-ArgumentList $dir,
+  [bool]$Flag` passes the *string* `"[bool]False"`, because in argument mode
+  PowerShell reads `[bool]` as literal text concatenated with the variable. Any
+  non-empty string is truthy, so a test for it always succeeds. Parenthesise
+  (`([bool]$Flag)`) or, better, decide on the host and pass a finished array.
+  This one silently disabled the test configuration on every run for eight
+  runs, and presented as the extension ignoring its config.
 - **`$null` in a string P/Invoke parameter marshals as an empty string, not
   NULL.** `FindWindow(class, $null)` therefore asks for a window with an *empty
   title* and finds nothing, because the desktop is titled "Program Manager" and
