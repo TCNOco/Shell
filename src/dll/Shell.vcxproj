@@ -108,7 +108,10 @@
            side file, is not referenced by the installer, and does not change
            the shipped image. -->
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
-      <WholeProgramOptimization>false</WholeProgramOptimization>
+      <!-- /GL. The Configuration property group already asks for whole program
+           optimisation; this used to switch it back off for every file, so it
+           was never actually on. -->
+      <WholeProgramOptimization>true</WholeProgramOptimization>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <Optimization>MaxSpeed</Optimization>
       <EnableModules>false</EnableModules>
@@ -118,12 +121,11 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <!-- LTCG and PGO are both worth having here and the plumbing is already
-           half present (see /EMITPOGOPHASEINFO and ProfileGuidedDatabase), but
-           they change codegen across the whole image, and this one is injected
-           into Explorer. Not enabling either until there is a VM test loop that
-           can actually catch a miscompile. -->
-      <LinkTimeCodeGeneration>Default</LinkTimeCodeGeneration>
+      <!-- /LTCG. Enabled once the VM smoke test existed to catch a miscompile:
+           this image is injected into Explorer, so "it linked" is not evidence
+           that it works. Validated by opening a real context menu and reading
+           the items back out of it. -->
+      <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <IgnoreEmbeddedIDL>true</IgnoreEmbeddedIDL>
       <AdditionalOptions>/EMITPOGOPHASEINFO</AdditionalOptions>
       <!-- This DLL is mapped into every process that shows a context menu, so
