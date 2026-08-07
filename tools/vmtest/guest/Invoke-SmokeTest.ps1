@@ -106,6 +106,14 @@ public struct MENUITEMINFO {
 [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
 [StructLayout(LayoutKind.Sequential)] public struct RECT { public int left, top, right, bottom; }
 
+// GetShellWindow returns the desktop's shell window, so its owning process is
+// the Explorer actually running the desktop rather than whichever instance
+// happens to be oldest.
+[DllImport("user32.dll")] public static extern IntPtr GetShellWindow();
+[DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr h, out int pid);
+// Cancels the active menu without depending on synthesised keystrokes.
+[DllImport("user32.dll")] public static extern bool EndMenu();
+
 public const uint MN_GETHMENU     = 0x01E1;
 public const uint MIIM_STRING     = 0x00000040;
 public const uint MIIM_SUBMENU    = 0x00000004;
@@ -189,10 +197,29 @@ try {
 
     # 1. Explorer is running and has our DLL mapped. If the DLL is not in the
     #    module list nothing downstream can pass, so this is checked first.
-    $explorer = Get-Process explorer -ErrorAction SilentlyContinue |
-                Sort-Object StartTime | Select-Object -First 1
-    Add-Check 'explorer running' ($null -ne $explorer)
-    if (-not $explorer) { throw 'explorer.exe is not running' }
+    #
+    #    The process is identified through GetShellWindow rather than by picking
+    #    the oldest explorer.exe: only one instance owns the desktop, and
+    #    checking a different one would report a missing DLL that is in fact
+    #    loaded exactly where it should be.
+    $explorer = $null
+    $shellWnd = [VmTest.Native]::GetShellWindow()
+    if ($shellWnd -ne [IntPtr]::Zero) {
+        $shellPid = 0
+        [void][VmTest.Native]::GetWindowThreadProcessId($shellWnd, [ref]$shellPid)
+        if ($shellPid -ne 0) {
+            $explorer = Get-Process -Id $shellPid -ErrorAction SilentlyContinue
+        }
+    }
+    if (-not $explorer) {
+        # No shell window yet: fall back so the failure is reported against a
+        # real process rather than as a bare null.
+        $explorer = Get-Process explorer -ErrorAction SilentlyContinue |
+                    Sort-Object StartTime | Select-Object -First 1
+    }
+    Add-Check 'explorer owns the desktop' ($null -ne $explorer) `
+        "shell window 0x$('{0:X}' -f [int64]$shellWnd)"
+    if (-not $explorer) { throw 'no explorer.exe owning a desktop' }
     $result.explorerPid = $explorer.Id
 
     $dllPath = Join-Path $InstallDir 'shell.dll'
@@ -252,9 +279,18 @@ try {
         }
     }
 
-    # Close the menu and let Explorer settle.
-    [System.Windows.Forms.SendKeys]::SendWait('{ESC}') 2>$null
+    # Close the menu and let Explorer settle. EndMenu cancels the active menu
+    # directly; SendKeys would depend on System.Windows.Forms having been loaded
+    # by the screenshot helper, which does not run if the screenshot failed, and
+    # on the keystroke reaching the right window.
+    [void][VmTest.Native]::EndMenu()
     Start-Sleep -Milliseconds 300
+
+    # A menu left open would keep Explorer in a modal loop and make every check
+    # below it unreliable.
+    $stillOpen = [VmTest.Native]::FindWindowW('#32768', $null)
+    Add-Check 'menu closed cleanly' `
+        ($stillOpen -eq [IntPtr]::Zero -or -not [VmTest.Native]::IsWindowVisible($stillOpen))
 
     # 3. Explorer survived. A restart means a crash, and the pid changes.
     $after = Get-Process explorer -ErrorAction SilentlyContinue |
