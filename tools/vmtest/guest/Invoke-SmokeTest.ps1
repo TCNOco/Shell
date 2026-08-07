@@ -245,9 +245,13 @@ try {
     if (-not $explorer) { throw 'no explorer.exe owning a desktop' }
     $result.explorerPid = $explorer.Id
 
+    # Explorer loads a shell extension on demand, so before the first menu is
+    # requested it may legitimately not be mapped yet. Record it here for
+    # information; the assertion happens after the menu has been triggered,
+    # which is the point at which it genuinely has to be loaded.
     $dllPath = Join-Path $InstallDir 'shell.dll'
-    $loaded = $explorer.Modules | Where-Object { $_.FileName -ieq $dllPath }
-    Add-Check 'shell.dll loaded into explorer' ($null -ne $loaded) $dllPath
+    $result.dllMappedBeforeTrigger =
+        [bool]($explorer.Modules | Where-Object { $_.FileName -ieq $dllPath })
 
     # 2. Open a context menu on the desktop and read it.
     # GetShellWindow is the authoritative handle for the desktop; the Progman
@@ -343,6 +347,18 @@ try {
 
     Add-Check 'context menu appeared' ($popup -ne [IntPtr]::Zero) `
         "waited $($sw.ElapsedMilliseconds)ms, trigger=$($result.trigger)"
+
+    # Now the DLL genuinely has to be mapped: a menu was requested, so the shell
+    # extension has had its reason to load. Re-read the module list rather than
+    # reusing the snapshot taken before the trigger.
+    $explorerNow = Get-Process -Id $result.explorerPid -ErrorAction SilentlyContinue
+    $mappedNow = $false
+    if ($explorerNow) {
+        $explorerNow.Refresh()
+        $mappedNow = [bool]($explorerNow.Modules | Where-Object { $_.FileName -ieq $dllPath })
+    }
+    Add-Check 'shell.dll mapped into explorer' $mappedNow `
+        "before trigger=$($result.dllMappedBeforeTrigger), after=$mappedNow"
 
     # Captured unconditionally. Screenshotting only on success meant that every
     # failure so far produced no evidence of what was actually on screen, which
