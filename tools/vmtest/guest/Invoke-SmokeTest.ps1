@@ -136,6 +136,10 @@ public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cl
 [DllImport("user32.dll", CharSet=CharSet.Unicode)]
 public static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder name, int max);
 [DllImport("user32.dll")] public static extern bool PostMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
+[DllImport("user32.dll", SetLastError=true)]
+public static extern bool SystemParametersInfoW(uint action, uint param, ref uint val, uint winIni);
+
+public const uint SPI_GETMENUSHOWDELAY = 0x006A;
 
 public const uint GW_HWNDNEXT   = 2;
 public const uint WM_CONTEXTMENU = 0x007B;
@@ -250,6 +254,16 @@ try {
         "shell window 0x$('{0:X}' -f [int64]$shellWnd)"
     if (-not $explorer) { throw 'no explorer.exe owning a desktop' }
     $result.explorerPid = $explorer.Id
+
+    # SPI_SETMENUSHOWDELAY is the submenu-on-hover delay, and it is a per-user
+    # system setting, not ours. The extension used to overwrite it from config on
+    # every menu open and restore it on close, which meant a user who had tuned
+    # it down got it forced back up for as long as a menu was open, and left
+    # permanently wrong if Explorer died in between. Sample it here and compare
+    # after the menu has been opened and closed.
+    $menuDelayBefore = 0
+    [void][VmTest.Native]::SystemParametersInfoW([VmTest.Native]::SPI_GETMENUSHOWDELAY, 0, [ref]$menuDelayBefore, 0)
+    $result.menuShowDelayBefore = $menuDelayBefore
 
     # Explorer loads a shell extension on demand, so before the first menu is
     # requested it may legitimately not be mapped yet. Record it here for
@@ -392,6 +406,17 @@ try {
     }
 
     if ($popup -ne [IntPtr]::Zero) {
+        # Sampled with the menu still up, which is the only moment the override
+        # is observable: the extension set the value on open and restored it on
+        # close, so a before/after comparison alone sees nothing. This is the
+        # value user32 uses to time submenu-on-hover for THIS menu.
+        $menuDelayDuring = 0
+        [void][VmTest.Native]::SystemParametersInfoW([VmTest.Native]::SPI_GETMENUSHOWDELAY, 0, [ref]$menuDelayDuring, 0)
+        $result.menuShowDelayDuring = $menuDelayDuring
+        Add-Check 'submenu delay not overridden while menu is open' `
+            ($menuDelayDuring -eq $menuDelayBefore) `
+            "system $menuDelayBefore ms, in-menu $menuDelayDuring ms"
+
         $hMenu = [VmTest.Native]::SendMessageW($popup, [VmTest.Native]::MN_GETHMENU, [IntPtr]::Zero, [IntPtr]::Zero)
         Add-Check 'menu handle retrieved' ($hMenu -ne [IntPtr]::Zero)
 
@@ -427,6 +452,15 @@ try {
     $after = Get-Process explorer -ErrorAction SilentlyContinue |
              Where-Object { $_.Id -eq $result.explorerPid }
     Add-Check 'explorer survived the menu' ($null -ne $after) "pid $($result.explorerPid)"
+
+    # Showing a menu must not have altered a system-wide user setting. This is
+    # the assertion for the showdelay change: with no showdelay in config the
+    # extension should never touch SPI_SETMENUSHOWDELAY at all.
+    $menuDelayAfter = 0
+    [void][VmTest.Native]::SystemParametersInfoW([VmTest.Native]::SPI_GETMENUSHOWDELAY, 0, [ref]$menuDelayAfter, 0)
+    $result.menuShowDelayAfter = $menuDelayAfter
+    Add-Check 'submenu show delay left alone' ($menuDelayAfter -eq $menuDelayBefore) `
+        "before $menuDelayBefore ms, after $menuDelayAfter ms"
 
     # 4. Nothing was logged as an error. The DLL writes shell.log next to itself.
     $logPath = Join-Path $InstallDir 'shell.log'

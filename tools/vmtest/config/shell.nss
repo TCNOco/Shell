@@ -14,7 +14,9 @@ settings
 {
 	priority = 1
 	exclude.where = !process.is_explorer
-	showdelay = 0
+	// No showdelay, matching the shipped default. Setting it at all makes the
+	// extension broadcast WM_SETTINGCHANGE to every top-level window twice per
+	// menu, which is exactly the behaviour under test.
 	tip.enabled = false
 }
 

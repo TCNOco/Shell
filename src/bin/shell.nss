@@ -2,7 +2,19 @@
 {
 	priority=1
 	exclude.where = !process.is_explorer
-	showdelay = 200
+
+	// showdelay sets SPI_SETMENUSHOWDELAY, the delay before a submenu opens on
+	// hover. That is a per-user system setting, and setting it here overrides
+	// whatever the user chose, for the whole time a menu is open.
+	//
+	// It used to default to 200. Windows' own default is 400, so that looked
+	// like an improvement - but anyone who had already tuned the setting down
+	// got it forced back up. On a machine set to 0 it made submenus 200x slower
+	// than the user asked for, which is the opposite of the point.
+	//
+	// Left unset, so the user's own setting applies. Uncomment to override:
+	// showdelay = 200
+
 	// Options to allow modification of system items
 	modify.remove.duplicate=1
 	tip.enabled=true
