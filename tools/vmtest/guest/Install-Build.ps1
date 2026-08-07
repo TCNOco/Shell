@@ -98,7 +98,29 @@ Write-Host 'binaries verified in place'
 
 if (-not $NoConfig) {
     Write-Host 'applying test configuration'
-    Copy-Item "$PayloadDir\config\*" $InstallDir -Recurse -Force
+
+    # Copied file by file rather than with "config\* -Recurse". That form nests
+    # config\imports inside the imports directory the binaries already created,
+    # instead of merging into it, and its handling of top-level files alongside
+    # -Force is inconsistent. The config landing in the wrong place is invisible
+    # at install time and shows up much later as "config file not found".
+    $cfgRoot = Join-Path $PayloadDir 'config'
+    Get-ChildItem $cfgRoot -Recurse -File | ForEach-Object {
+        $rel = $_.FullName.Substring($cfgRoot.Length).TrimStart('\')
+        $dst = Join-Path $InstallDir $rel
+        $dstDir = Split-Path $dst -Parent
+        if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Force -Path $dstDir | Out-Null }
+        Copy-Item $_.FullName $dst -Force
+        Write-Host "  $rel"
+    }
+
+    # The extension looks for shell.nss beside shell.dll and only logs a warning
+    # if it is absent, so verify it here where the failure is still actionable.
+    $cfg = Join-Path $InstallDir 'shell.nss'
+    if (-not (Test-Path $cfg)) {
+        throw "config was not installed: $cfg does not exist"
+    }
+    Write-Host "config in place: $cfg ($((Get-Item $cfg).Length) bytes)"
 }
 
 # A stale log would make the smoke test's error assertion meaningless.

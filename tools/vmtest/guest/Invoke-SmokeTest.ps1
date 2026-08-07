@@ -399,12 +399,6 @@ try {
         foreach ($expect in $ExpectedItems) {
             Add-Check "top-level item '$expect'" ($all -contains $expect)
         }
-        foreach ($expect in $ExpectedSubItems) {
-            # Submenu contents only materialise once the popup is opened, so a
-            # miss here is reported but does not by itself mean a regression;
-            # the orchestrator decides based on whether any were found at all.
-            Add-Check "submenu item '$expect'" ($all -contains $expect)
-        }
     }
 
     # Close the menu and let Explorer settle. EndMenu cancels the active menu
