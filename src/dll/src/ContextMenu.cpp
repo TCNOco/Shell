@@ -2,6 +2,7 @@
 #include "Include/Theme.h"
 #include "Include/ContextMenu.h"
 #include "Include/stb_image_write.h"
+#include "RegistryConfig.h"   // the diag switch read at menu teardown
 
 using namespace Nilesoft::Diagnostics;
 #include <mutex>
@@ -4171,13 +4172,26 @@ namespace Nilesoft
 				// ourselves, from the menu window - still appears. That is
 				// indistinguishable by eye from a theme or harvest problem, and it is
 				// not visible anywhere else, so it is worth one line when it happens.
-				if(_n_drawitem == 0 && !_items.empty())
+				// Reported unconditionally when HKCU\<APP_KEY>\diag\menu is 1, and
+				// otherwise only when it went wrong. Silence from a conditional
+				// diagnostic is ambiguous - it means either "fine" or "the
+				// diagnostic never ran" - and that ambiguity has already wasted a
+				// round here. With the switch on, every menu leaves a line, so
+				// nothing has to be inferred from an empty file.
+				int diag = 0;
+				RegistryConfig::get(L"\\diag", L"menu", diag);
+
+				if(diag == 1 || (_n_drawitem == 0 && !_items.empty()))
 				{
-					Logger::Warning(L"menu built with %zu items but no WM_DRAWITEM arrived "
-									L"(measureitem=%u); owner hwnd %p class '%s' - the owner "
-									L"window is not delivering owner-draw messages",
-									_items.size(), _n_measureitem, hwnd.owner,
-									Window::class_name(hwnd.owner).c_str());
+					Logger::Warning(L"menu teardown: items=%zu measureitem=%u drawitem=%u "
+									L"owner=%p class='%s' explorer=%d%s",
+									_items.size(), _n_measureitem, _n_drawitem, hwnd.owner,
+									Window::class_name(hwnd.owner).c_str(),
+									Selected.loader.explorer ? 1 : 0,
+									(_n_drawitem == 0 && !_items.empty())
+										? L" -- NO WM_DRAWITEM: the owner window is not "
+										  L"delivering owner-draw messages"
+										: L"");
 				}
 
 				delete __system_menu_tree;
