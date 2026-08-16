@@ -34,8 +34,10 @@
 		item(title='version' cmd-line='/k dotnet --info')
 	}
 
-	item(type="file" title="reshack" sep="top" image cmd='D:\config\Programs\dev\petools\resource\reshack\reshack.exe' args=sel(1))
-	item(type="file" title="peview" image cmd='D:\config\Programs\dev\petools\peview.exe' args=sel(1))
-	
-	item(type="dir|dir.back" title="Web server" vis=key.shift() cmd='D:\config\Programs\dev\web\HTTPServer\WebServer.exe' args='-open -path:"@sel.path"')
+	// reshack, peview and a "Web server" entry used to live here, hardcoded to
+	// D:\config\Programs\dev\... - paths on the original author's machine, with
+	// no existence guard. They shipped in the MSI, so every user got three menu
+	// items pointing at a drive they do not have. Add your own tools here; the
+	// pattern is above, and path.exists() will keep an entry hidden when the
+	// tool is not installed.
 }

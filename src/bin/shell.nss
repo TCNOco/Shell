@@ -58,13 +58,10 @@ import 'imports/theme.nss'
 import 'imports/images.nss'
 import 'imports/modify.nss'
 
-menu(mode="multiple" title=loc.pin_unpin image=icon.pin)
-{
-}
-
-menu(mode="multiple" title=title.more_options image=icon.more_options)
-{
-}
+// The Pin/Unpin and "More options" containers are gone with the rules that
+// filled them - see imports/modify.nss. An empty menu shell is not free: it is
+// still declared, still evaluated per menu build, and still shows up if
+// anything ever matches it again by accident.
 
 import 'imports/terminal.nss'
 import 'imports/file-manage.nss'
