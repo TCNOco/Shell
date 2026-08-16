@@ -48,9 +48,9 @@ Version Build
 #if defined(_M_ARM64)
 #pragma comment(lib, "plutosvg-arm64.lib")
 #pragma comment(lib, "detours-arm64.lib")
-#elif defined(_M_ARM)
-#pragma comment(lib, "plutosvg-arm.lib")
-#pragma comment(lib, "detours-arm.lib")
+// No _M_ARM branch. The solution builds Win32, x64 and ARM64 only, and neither
+// plutosvg-arm.lib nor detours-arm.lib exists in shared\Library, so the arm32
+// case advertised a target that could never have linked.
 #elif defined(_M_X64)
 #pragma comment(lib, "plutosvg-x64.lib")
 #pragma comment(lib, "detours-x64.lib")

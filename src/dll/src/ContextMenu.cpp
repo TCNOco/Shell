@@ -2161,10 +2161,11 @@ namespace Nilesoft
 			font.menu = {};
 			Theme::GetFont(&font.menu, dpi.val);
 
-		//	long zofont = std::abs(font.menu.lfHeight);
-
-			font.menu.lfHeight = dpi(font.menu.lfHeight);
-
+			// font.menu.lfHeight used to be scaled here, which was a second scaling:
+			// GetFont above passes dpi.val to SystemParametersInfoForDpi, so
+			// lfMenuFont comes back already scaled for this monitor. It had no
+			// observable effect only because nothing ever read the value back - the
+			// single consumer below takes lfFaceName.
 			_context.font.text = font.menu.lfFaceName;
 
 			bool enableTransparency = false;
