@@ -4045,10 +4045,25 @@ namespace Nilesoft
 			
 				Prop::Set(hwnd.owner, this);
 
+				// This hook is how the popup window is noticed at all: WinEventProc
+				// turns EVENT_OBJECT_CREATE into OnMenuCreate, which installs the
+				// subclass that draws everything. Without it the menu is still ours
+				// and still has our items, but USER32 paints it - no background, no
+				// gradient, no colours - and that is indistinguishable from "the
+				// theme is not working" unless somebody says so.
+				//
+				// It used to fail silently, which made exactly that symptom
+				// impossible to diagnose from a released build.
 				if(_winEventHook.hook(EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, Initializer::HInstance,
 									  ContextMenu::WinEventProc, ProcessId, ThreadId))
 				{
 					HookMap[_winEventHook.get()] = this;
+				}
+				else
+				{
+					Logger::Warning(L"SetWinEventHook failed (error %u) for process %u thread %u; "
+									L"the menu will be drawn by the system, unthemed",
+									::GetLastError(), ProcessId, ThreadId);
 				}
 
 				if(_context.eval_bool(sets->screenshot.enabled))
