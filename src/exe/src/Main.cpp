@@ -18,14 +18,19 @@
 #pragma comment(lib, "dwmapi")
 #pragma comment(lib, "shlwapi.lib")
 
+// plutovg is a second library since upstream split it out of plutosvg, and
+// plutosvg references it, so it must come after.
 #if defined(_M_ARM64)
 	#pragma comment(lib, "plutosvg-arm64.lib")
+	#pragma comment(lib, "plutovg-arm64.lib")
 //#elif defined(_M_ARM)
 //	#pragma comment(lib, "plutosvg-arm.lib")
 #elif defined(_M_X64)
 	#pragma comment(lib, "plutosvg-x64.lib")
+	#pragma comment(lib, "plutovg-x64.lib")
 #else
 	#pragma comment(lib, "plutosvg-x86.lib")
+	#pragma comment(lib, "plutovg-x86.lib")
 #endif
 
 using namespace Nilesoft;

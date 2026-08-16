@@ -49,8 +49,12 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <LibraryPath>$(SolutionDir)shared\Library;$(LibraryPath)</LibraryPath>
-    <IncludePath>$(ProjectDir)src;$(ProjectDir)src\include;$(IncludePath)</IncludePath>
+    <!-- bin\lib first: plutovg and plutosvg are built from the submodules by
+         src/lib/*.vcxproj and must win over any stale prebuilt copy still
+         sitting in shared\Library. detours is still prebuilt and comes from
+         there. -->
+    <LibraryPath>$(SolutionDir)bin\lib\$(Platform);$(SolutionDir)shared\Library;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(ProjectDir)src;$(ProjectDir)src\include;$(SolutionDir)lib\plutosvg\source;$(SolutionDir)lib\plutosvg\plutovg\include;$(IncludePath)</IncludePath>
     <!-- LTCG is off by default because it was measured and did not pay.
          Enable with /p:ShellEnableLTCG=true.
 
@@ -77,13 +81,25 @@
     <ClCompile>
       <WarningLevel>Level4</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_WINDOWS;_WINDLL;_USRDLL;Shell_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <!-- Without the _BUILD_STATIC pair, plutovg.h and plutosvg.h declare
+           their API __declspec(dllimport), which does not resolve against a
+           static lib. -->
+      <PreprocessorDefinitions>_WINDOWS;_WINDLL;_USRDLL;Shell_EXPORTS;PLUTOVG_BUILD_STATIC;PLUTOSVG_BUILD_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <PrecompiledHeaderOutputFile>$(IntDir)$(TargetName).pch</PrecompiledHeaderOutputFile>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <CallingConvention>StdCall</CallingConvention>
+      <!-- Cdecl, not StdCall. This only ever affected x86, since x64 and ARM64
+           have a single convention, and it was StdCall to match the prebuilt
+           plutosvg-x86.lib, whose exports were decorated (_plutovg_create@4).
+           That lib is gone. plutovg is now built from source and must be Cdecl,
+           because upstream hands qsort comparators and free() to its own
+           callback typedefs and those do not survive /Gz. Everything crossing
+           an ABI boundary here (COM vtables, the DLL entry points, Win32
+           callbacks) already carries an explicit STDMETHODCALLTYPE, STDAPI,
+           WINAPI or CALLBACK, so none of them move. -->
+      <CallingConvention>Cdecl</CallingConvention>
       <ExceptionHandling>Async</ExceptionHandling>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <CompileAsManaged>false</CompileAsManaged>
@@ -233,6 +249,20 @@
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="$(SolutionDir)shared\Resource\Shell.rc" />
+  </ItemGroup>
+  <!-- Build order only. The libraries are pulled in by #pragma comment(lib) in
+       src/Main.cpp against LibraryPath, not by the linker following these, so
+       ReferenceOutputAssembly stays false. Without them a clean solution build
+       can reach the link step before the libs exist. -->
+  <ItemGroup>
+    <ProjectReference Include="$(SolutionDir)lib\plutovg.vcxproj">
+      <Project>{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="$(SolutionDir)lib\plutosvg.vcxproj">
+      <Project>{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

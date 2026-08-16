@@ -46,17 +46,23 @@ Version Build
 #pragma comment(lib, "oleaut32.lib")
 #pragma comment(lib, "Shlwapi.lib")
 
+// plutovg is a second library since upstream split it out of plutosvg; the
+// old prebuilt plutosvg-*.lib bundled both. Order matters for the linker:
+// plutosvg references plutovg.
 #if defined(_M_ARM64)
 #pragma comment(lib, "plutosvg-arm64.lib")
+#pragma comment(lib, "plutovg-arm64.lib")
 #pragma comment(lib, "detours-arm64.lib")
 // No _M_ARM branch. The solution builds Win32, x64 and ARM64 only, and neither
 // plutosvg-arm.lib nor detours-arm.lib exists in shared\Library, so the arm32
 // case advertised a target that could never have linked.
 #elif defined(_M_X64)
 #pragma comment(lib, "plutosvg-x64.lib")
+#pragma comment(lib, "plutovg-x64.lib")
 #pragma comment(lib, "detours-x64.lib")
 #elif defined(_M_IX86)
 #pragma comment(lib, "plutosvg-x86.lib")
+#pragma comment(lib, "plutovg-x86.lib")
 #pragma comment(lib, "detours-x86.lib")
 #endif
 

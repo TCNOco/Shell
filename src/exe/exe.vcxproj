@@ -65,10 +65,16 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <LibraryPath>$(SolutionDir)shared\Library;$(LibraryPath)</LibraryPath>
+    <!-- bin\lib first, so the freshly built plutovg/plutosvg win over any
+         stale prebuilt copy left in shared\Library. -->
+    <LibraryPath>$(SolutionDir)bin\lib\$(Platform);$(SolutionDir)shared\Library;$(LibraryPath)</LibraryPath>
+    <IncludePath>$(SolutionDir)lib\plutosvg\source;$(SolutionDir)lib\plutosvg\plutovg\include;$(IncludePath)</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Label="Globals">
     <ClCompile>
+      <!-- Without these the headers declare the API __declspec(dllimport),
+           which does not resolve against a static lib. -->
+      <PreprocessorDefinitions>PLUTOVG_BUILD_STATIC;PLUTOSVG_BUILD_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <CompileAsManaged>false</CompileAsManaged>
       <RuntimeTypeInfo>false</RuntimeTypeInfo>
       <ExceptionHandling>Async</ExceptionHandling>
@@ -101,7 +107,11 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
       <Optimization Condition="'$(Configuration)|$(Platform)'=='release|Win32'">MinSpace</Optimization>
-      <CallingConvention Condition="'$(Configuration)|$(Platform)'=='release|Win32'">StdCall</CallingConvention>
+      <!-- Was StdCall for release|Win32 only, to match the decorated exports of
+           the prebuilt plutosvg-x86.lib. plutovg is built from source now and
+           is Cdecl, so this has to go; x64 was already Cdecl, which is what
+           gave the game away about why it was ever here. -->
+      <CallingConvention Condition="'$(Configuration)|$(Platform)'=='release|Win32'">Cdecl</CallingConvention>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -150,6 +160,18 @@
   <ItemGroup>
     <ClInclude Include="$(SolutionDir)shared\Resource\resource.h" />
     <ClInclude Include="src\Control.h" />
+  </ItemGroup>
+  <!-- Build order only; the libraries come in through #pragma comment(lib) in
+       src/Main.cpp against LibraryPath. -->
+  <ItemGroup>
+    <ProjectReference Include="$(SolutionDir)lib\plutovg.vcxproj">
+      <Project>{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="$(SolutionDir)lib\plutosvg.vcxproj">
+      <Project>{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ItemGroup>

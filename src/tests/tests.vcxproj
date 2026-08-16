@@ -37,6 +37,7 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="PropertySheets">
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="$(SolutionDir)shared\ShellArch.props" />
   </ImportGroup>
   <ItemDefinitionGroup>
     <ClCompile>
@@ -50,10 +51,17 @@
       <TreatWarningAsError>true</TreatWarningAsError>
       <!-- The test sources carry non-ASCII literals on purpose. -->
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalIncludeDirectories>$(SolutionDir)shared;$(SolutionDir)lib\plutosvg\source;$(SolutionDir)lib\plutosvg\plutovg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <!-- Without these the headers declare the API __declspec(dllimport),
+           which does not resolve against a static lib. -->
+      <PreprocessorDefinitions>PLUTOVG_BUILD_STATIC;PLUTOSVG_BUILD_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <!-- plutosvg before plutovg: the former references the latter. -->
+      <AdditionalLibraryDirectories>$(SolutionDir)bin\lib\$(Platform);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>plutosvg-$(ShellArchName).lib;plutovg-$(ShellArchName).lib;gdi32.lib;user32.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -67,7 +75,19 @@
     <ClCompile Include="test_encoding.cpp" />
     <ClCompile Include="test_bitmapcache.cpp" />
     <ClCompile Include="test_shellext.cpp" />
+    <ClCompile Include="test_plutovgwrap.cpp" />
     <ClCompile Include="..\dll\src\ShellExt.cpp" />
+  </ItemGroup>
+  <!-- Build order only; the libraries are named in AdditionalDependencies. -->
+  <ItemGroup>
+    <ProjectReference Include="$(SolutionDir)lib\plutovg.vcxproj">
+      <Project>{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
+    <ProjectReference Include="$(SolutionDir)lib\plutosvg.vcxproj">
+      <Project>{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}</Project>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <!-- Run the suite as part of the build so a regression fails CI, not just a

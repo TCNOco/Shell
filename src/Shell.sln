@@ -5,6 +5,10 @@ VisualStudioVersion = 17.1.32319.34
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "shared", "shared\shared.vcxitems", "{096F9029-DBBB-4CB7-A0C5-615007DCA000}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "plutovg", "lib\plutovg.vcxproj", "{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "plutosvg", "lib\plutosvg.vcxproj", "{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}"
+EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "dll", "dll\Shell.vcxproj", "{BAF011AC-D5E9-42C5-BA26-BA6115A45DAC}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "exe", "exe\exe.vcxproj", "{FFFD0DDB-48FB-4681-A3B6-8E787FA98C98}"
@@ -27,6 +31,18 @@ Global
 		release|x86 = release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}.release|ARM64.ActiveCfg = release|ARM64
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}.release|ARM64.Build.0 = release|ARM64
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}.release|x64.ActiveCfg = release|x64
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}.release|x64.Build.0 = release|x64
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}.release|x86.ActiveCfg = release|Win32
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}.release|x86.Build.0 = release|Win32
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}.release|ARM64.ActiveCfg = release|ARM64
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}.release|ARM64.Build.0 = release|ARM64
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}.release|x64.ActiveCfg = release|x64
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}.release|x64.Build.0 = release|x64
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}.release|x86.ActiveCfg = release|Win32
+		{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}.release|x86.Build.0 = release|Win32
 		{BAF011AC-D5E9-42C5-BA26-BA6115A45DAC}.release|ARM64.ActiveCfg = release|ARM64
 		{BAF011AC-D5E9-42C5-BA26-BA6115A45DAC}.release|ARM64.Build.0 = release|ARM64
 		{BAF011AC-D5E9-42C5-BA26-BA6115A45DAC}.release|x64.ActiveCfg = release|x64

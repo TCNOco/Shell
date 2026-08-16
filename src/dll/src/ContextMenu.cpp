@@ -6053,7 +6053,10 @@ namespace Nilesoft
 }
 #pragma endregion
 
-LRESULT LayerProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+// WINAPI here as well as on the declaration in ContextMenu.h:71. This is
+// assigned to WNDCLASS::lpfnWndProc, so it has to be __stdcall on x86; it only
+// ever was because the whole project was compiled /Gz.
+LRESULT WINAPI LayerProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	if(uMsg == WM_WINDOWPOSCHANGED)
 	{

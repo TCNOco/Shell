@@ -1,6 +1,4 @@
 ﻿#include <pch.h>
-#include <Library/plutovg.h>
-#include <Library/plutosvg.h>
 #include <Library/PlutoVGWrap.h>
 
 namespace Nilesoft
