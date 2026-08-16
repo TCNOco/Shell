@@ -713,6 +713,26 @@ plutovg_move_to(pluto, start.x, start.y);
 			HMENU _pt_menu{};
 			HMENU _pt_first_item_menu{};
 
+			// Sampled while drawing, not at teardown. Uninitialize closes the theme
+			// handle before it logs, so the hTheme it reported was always null and
+			// said nothing about either a working or a broken menu.
+			//
+			// Everything reaching a composited popup depends on alpha: black is the
+			// transparency colour, so a row drawn with no alpha is not a blank row,
+			// it is a hole. These separate "never asked to draw it" from "drew it
+			// and it did not stick":
+			//   _dbg_theme     - the handle actually passed to DrawThemeTextEx
+			//   _dbg_text_hr   - what that call returned, first failure kept
+			//   _dbg_buffered  - whether BeginBufferedPaint gave us its own DC
+			//   _n_drawstring* - text drawn, versus skipped for alpha 0
+			//   _n_drawimage   - icons blitted, which bypass the theme entirely
+			HTHEME _dbg_theme{};
+			long _dbg_text_hr{ 1 };
+			uint32_t _n_drawstring{};
+			uint32_t _n_drawstring_skipped{};
+			uint32_t _n_drawimage{};
+			bool _dbg_buffered{};
+
 		public:// functions
 
 			bool set_prop(auto hWnd) { return Prop::Set(hWnd, this); }

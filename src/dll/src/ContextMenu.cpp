@@ -1516,10 +1516,15 @@ namespace Nilesoft
 		void ContextMenu::draw_string(HDC hdc, HFONT hFont, const Rect *rc, const Color &color, const wchar_t *text, int length, DWORD format, bool disable_BufferedPaint)
 		{
 			if(color.a == 0)
+			{
+				_n_drawstring_skipped++;
 				return;
+			}
 
 			BufferedPaint bp(hdc, rc);
 			HDC hdcPaint = disable_BufferedPaint ? nullptr : bp.begin(color.a);
+
+			_dbg_buffered = hdcPaint != nullptr;
 
 			if(!hdcPaint)
 				hdcPaint = hdc;
@@ -1531,8 +1536,16 @@ namespace Nilesoft
 				auto hFontOld = ::SelectObject(hdcPaint, hFont);
 				DTTOPTS dttOpts = { sizeof(DTTOPTS),  DTT_COMPOSITED | DTT_TEXTCOLOR, color.to_BGR() };
 				//::SetTextAlign(hdcPaint, TA_BASELINE | TA_UPDATECP);
-				::DrawThemeTextEx(_hTheme, hdcPaint, 0, 0, text, length, format, const_cast<Rect *>(rc), &dttOpts);
+				auto hr = ::DrawThemeTextEx(_hTheme, hdcPaint, 0, 0, text, length, format, const_cast<Rect *>(rc), &dttOpts);
 				::SelectObject(hdcPaint, hFontOld);
+
+				// Keep the first failure: a null theme handle fails every call the
+				// same way, so the last one would be no more informative and a
+				// success after a failure would hide it.
+				_n_drawstring++;
+				_dbg_theme = _hTheme;
+				if(FAILED(hr) && _dbg_text_hr == 1)
+					_dbg_text_hr = hr;
 			}
 		}
 
@@ -1878,6 +1891,7 @@ namespace Nilesoft
 								if(image->import == ImageImport::SVG && is_16)
 									dc.draw_image(rcim.point(), image->size, memDC, state.disabled ? 48 : 192);
 								dc.draw_image(rcim.point(), image->size, memDC, state.disabled ? 64 : 255);
+								_n_drawimage++;
 							}
 							memDC.reset_bitmap();
 						}
@@ -4193,19 +4207,25 @@ namespace Nilesoft
 					// The draw path runs identically in a host where nothing appears,
 					// so what differs is the state it draws WITH. These are every
 					// gate that can blank the output while leaving the frame:
-					//   hTheme     - null removes all text; DrawThemeTextEx is the
+					//   theme      - null removes all text; DrawThemeTextEx is the
 					//                only text call in the DLL, with no GDI fallback.
 					//   composition- true fills item backgrounds with black on the
 					//                assumption the layered window composites it away.
 					//   text/back  - alpha 0 makes draw_string return before drawing.
+					// theme/hr/str/img come from the draw itself. The old hTheme field
+					// was read here, after CloseThemeData above had already nulled it,
+					// so it printed 0 for working and broken menus alike.
 					Logger::Warning(L"menu teardown: items=%zu measureitem=%u drawitem=%u "
 									L"unmatched=%u owner=%p class='%s' explorer=%d | "
-									L"hTheme=%p composition=%d(dwm=%d act=%d) "
+									L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
+									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
 									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough,
 									hwnd.owner, Window::class_name(hwnd.owner).c_str(),
 									Selected.loader.explorer ? 1 : 0,
-									_hTheme,
+									_dbg_theme, static_cast<uint32_t>(_dbg_text_hr),
+									_n_drawstring, _n_drawstring_skipped, _n_drawimage,
+									_dbg_buffered ? 1 : 0,
 									static_cast<bool>(composition) ? 1 : 0,
 									composition.DwmEnabled ? 1 : 0, composition.activated ? 1 : 0,
 									_theme.text.color.nor.to_RGB(), static_cast<int>(_theme.text.color.nor.a),
