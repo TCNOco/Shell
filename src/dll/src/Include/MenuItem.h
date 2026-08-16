@@ -406,9 +406,13 @@ namespace Nilesoft
 				if(!title.empty())
 				{
 					this->title = title.move();
+					// normalize() splits an accelerator off at the tab and reassigns
+					// title.text from a fresh allocation, so dwTypeData and cch have to
+					// be taken after it. Taken before, they were handed to USER32 still
+					// pointing at the buffer normalize() had just freed.
+					normalize();
 					this->dwTypeData = this->title.text;
 					cch = this->title.text.length<uint32_t>();
-					normalize();
 				}
 			}
 

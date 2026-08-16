@@ -3375,13 +3375,23 @@ namespace Nilesoft
 				string::Copy(_theme.font.lfFaceName, L"Segoe UI");
 			}
 
-			if(ver->IsWindows11OrGreater()) 
+			if(ver->IsWindows11OrGreater())
 			{
-				DWORD dwTextScaleFactor = 100, cbData;
-				::RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Accessibility", 
-							   L"TextScaleFactor", RRF_RT_DWORD, nullptr, &dwTextScaleFactor, &cbData);
-				long scale = ((dpi.val + 24) * dwTextScaleFactor) / 100;
-				_theme.font.lfHeight = 12 * scale / 100;
+				// TextScaleFactor is the accessibility text size as a percentage, and it
+				// is absent unless the user has changed it. cbData is in/out: it was left
+				// uninitialised and the result unchecked, so a garbage stack value decided
+				// whether the read happened at all. The block then overwrote lfHeight
+				// unconditionally - discarding lfMenuFont, which SystemParametersInfoForDpi
+				// above has already scaled for this monitor - and wrote a positive cell
+				// height over a negative character height, which is not the same unit.
+				DWORD dwTextScaleFactor = 0, cbData = sizeof(dwTextScaleFactor);
+				if(ERROR_SUCCESS == ::RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Accessibility",
+												   L"TextScaleFactor", RRF_RT_DWORD, nullptr,
+												   &dwTextScaleFactor, &cbData)
+				   && dwTextScaleFactor > 100)
+				{
+					_theme.font.lfHeight = _theme.font.lfHeight * static_cast<long>(dwTextScaleFactor) / 100;
+				}
 			}
 					
 			if(__font.name.is_string())
@@ -3942,9 +3952,13 @@ namespace Nilesoft
 
 							if(_settings.modify_items.remove.duplicate)
 							{
-								uint32_t indexof = 0;
-								for(auto im : menu->items)
+								// indexof has to advance with the scan. It used to be
+								// incremented after the loop, so it was always 0 here and
+								// replacing a duplicate overwrote items[0] - an unrelated
+								// entry - instead of the one that matched.
+								for(size_t indexof = 0; indexof < menu->items.size(); indexof++)
 								{
+									auto im = menu->items[indexof];
 									if(im->hash == item->hash)
 									{
 										if(im->type == item->type)
@@ -3955,6 +3969,15 @@ namespace Nilesoft
 												if(!item->disabled)
 												{
 													found_duplicate = 2;
+													// The vector owns its elements, so the entry
+													// being replaced has to be freed or it leaks
+													// with everything below it. Nothing else aliases
+													// it yet: __movable_system_items and the reads of
+													// __map_system_menu all belong to
+													// build_main_system_menuitems, which runs after
+													// this whole pass. A submenu's stale map entry is
+													// overwritten by the registration below.
+													delete im;
 													menu->items[indexof] = item.release();
 												}
 											}
@@ -3962,7 +3985,6 @@ namespace Nilesoft
 										}
 									}
 								}
-								indexof++;
 							}
 							
 							if(found_duplicate == 1)
@@ -3977,18 +3999,20 @@ namespace Nilesoft
 							build_system_menuitems(mii.hSubMenu, itemPtr, false);
 					}
 					
-					if(found_duplicate != 2)
+					// Registered even when this item replaced a duplicate, so the map
+					// stops pointing at the entry that was just deleted. itemPtr, not
+					// item: on the replacement path the unique_ptr has already been
+					// released into the vector.
+					if(itemPtr->is_menu())
 					{
-						if(item->is_menu())
-						{
-							string sub_path = item->name;
-							if(!item->path.empty())
-								sub_path = item->path + L'/' + sub_path;
-							__map_system_menu[sub_path.hash()] = itemPtr;
-						}
-
-						menu->items.push_back(item.release());
+						string sub_path = itemPtr->name;
+						if(!itemPtr->path.empty())
+							sub_path = itemPtr->path + L'/' + sub_path;
+						__map_system_menu[sub_path.hash()] = itemPtr;
 					}
+
+					if(found_duplicate != 2)
+						menu->items.push_back(item.release());
 				}
 			}
 		}
