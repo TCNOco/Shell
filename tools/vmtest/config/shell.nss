@@ -36,9 +36,27 @@ item(where=window.is_desktop title='VMTEST_CYR_А' pos=4 cmd='')
 item(where=window.is_desktop title='VMTEST_CYR_а' pos=5 cmd='')
 item(where=window.is_desktop title=vmtest_imported_title pos=6 cmd='')
 
+// Locale selection, using the same shape as the shipped shell.nss. The import
+// machinery roots a relative path against the importing file's directory, but
+// it does that after evaluating the expression, so path.exists() below sees the
+// path as written. loc_path is therefore absolute; a relative one resolves
+// against the host process working directory - Explorer's - and never matches,
+// which is how every non-English locale came to fall back to English.
+//
+// Install-Build.ps1 writes imports\lang\<guest user locale>.nss containing
+// VMTEST_LOCALE_OK. If selection breaks, en.nss supplies VMTEST_LOCALE_FALLBACK
+// instead and the expected-item assertion fails by name.
+$loc_path = app.dir + '\imports\lang\'
+import lang loc_path + "en.nss"
+import lang if(path.exists(loc_path + sys.lang + ".nss"),
+               loc_path + sys.lang + ".nss",
+               loc_path + "en.nss")
+
+item(where=window.is_desktop title=loc.vmtest_locale pos=7 cmd='')
+
 // Kept so the submenu path is still exercised, but nothing is asserted on its
 // contents from a single right-click.
-menu(where=window.is_desktop title='VMTEST_SENTINEL_MENU' pos=7)
+menu(where=window.is_desktop title='VMTEST_SENTINEL_MENU' pos=8)
 {
 	item(title='VMTEST_SUBITEM' cmd='')
 }

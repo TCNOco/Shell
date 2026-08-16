@@ -34,6 +34,9 @@ param(
         'VMTEST_CYR_А',
         'VMTEST_CYR_а',
         'VMTEST_IMPORT_OK',       # a relative import resolved without the CWD hack
+        'VMTEST_LOCALE_OK',       # path.exists() picked the guest's own locale file.
+                                  #   A regression shows up as VMTEST_LOCALE_FALLBACK
+                                  #   in the menu, so this fails by name.
         'VMTEST_SENTINEL_MENU'    # the submenu itself exists, contents not asserted
     ),
     [int] $MenuTimeoutMs = 6000,

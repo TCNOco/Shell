@@ -131,6 +131,35 @@ if (-not $NoConfig) {
         Write-Host "  $rel"
     }
 
+    # Generated here rather than shipped, because the name has to match what
+    # sys.lang returns on THIS guest - GetUserDefaultLocaleName - and that is
+    # what shell.nss tests for with path.exists(). A committed en-US.nss would
+    # simply not match a guest set to anything else, and the locale check would
+    # then fail for a reason that has nothing to do with the code under test.
+    # Resolved through the API rather than Get-Culture so it is the same value
+    # the DLL sees.
+    Add-Type -Namespace VmTestLoc -Name Native -MemberDefinition @'
+[DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+public static extern int GetUserDefaultLocaleName(System.Text.StringBuilder lpLocaleName, int cchLocaleName);
+'@
+    $sb = New-Object System.Text.StringBuilder 85
+    $locale = if ([VmTestLoc.Native]::GetUserDefaultLocaleName($sb, 85) -gt 0) { $sb.ToString() } else { '' }
+
+    if (-not $locale) {
+        Write-Warning 'GetUserDefaultLocaleName failed; locale check will use the en.nss fallback and fail'
+    }
+    elseif ($locale -eq 'en') {
+        # Would overwrite the fallback file and make the check tautological.
+        Write-Warning "guest locale is exactly 'en'; skipping locale file, the locale check cannot distinguish"
+    }
+    else {
+        $langDir = Join-Path $InstallDir 'imports\lang'
+        if (-not (Test-Path $langDir)) { New-Item -ItemType Directory -Force -Path $langDir | Out-Null }
+        $locFile = Join-Path $langDir "$locale.nss"
+        Set-Content -Path $locFile -Value 'vmtest_locale="VMTEST_LOCALE_OK"' -Encoding UTF8
+        Write-Host "  imports\lang\$locale.nss (generated for guest locale $locale)"
+    }
+
     # The extension looks for shell.nss beside shell.dll and only logs a warning
     # if it is absent, so verify it here where the failure is still actionable.
     $cfg = Join-Path $InstallDir 'shell.nss'
