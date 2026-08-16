@@ -54,6 +54,16 @@ function Write-Step { param([string] $m) Write-Host "`n=== $m" -ForegroundColor 
 function Write-Ok   { param([string] $m) Write-Host "    $m" -ForegroundColor Green }
 function Write-Warn { param([string] $m) Write-Host "    $m" -ForegroundColor Yellow }
 
+# Most InprocServer32 keys under HKLM have a default value, but not all do, and
+# under Set-StrictMode a missing property is an error rather than $null. Go
+# through the RegistryKey itself, where an absent value is just null.
+function Get-RegDefault {
+    param([string] $Path)
+    $k = Get-Item -LiteralPath $Path -ErrorAction SilentlyContinue
+    if (-not $k) { return $null }
+    return $k.GetValue('')
+}
+
 $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
          ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $admin) {
@@ -120,7 +130,7 @@ Get-ChildItem 'HKLM:\SOFTWARE\Classes\CLSID' -ErrorAction SilentlyContinue | For
     if ($_.PSChildName -eq $OurClsid) { return }
     $ip = Join-Path $_.PSPath 'InprocServer32'
     if (Test-Path $ip) {
-        $v = (Get-ItemProperty $ip -ErrorAction SilentlyContinue).'(default)'
+        $v = Get-RegDefault $ip
         if ($v -and $v -match '\\shell\.dll$' -and $v -notlike "$InstallDir*") {
             $others += [pscustomobject]@{ Clsid = $_.PSChildName; Path = $v }
         }
@@ -199,7 +209,7 @@ Write-Host "    exit $rc (not authoritative)"
 
 $key = "HKLM:\SOFTWARE\Classes\CLSID\$OurClsid\InprocServer32"
 if (-not (Test-Path $key)) { throw "registration did not create $key" }
-$registered = (Get-ItemProperty $key).'(default)'
+$registered = Get-RegDefault $key
 if ($registered -ne (Join-Path $InstallDir 'shell.dll')) {
     throw "InprocServer32 points at '$registered', expected '$(Join-Path $InstallDir 'shell.dll')'"
 }
