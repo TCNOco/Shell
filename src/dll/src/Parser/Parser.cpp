@@ -1158,6 +1158,26 @@ namespace Nilesoft
 				m_imports.push_back(hash);
 			}
 
+			// A file already open further up the stack is a cycle. The depth cap
+			// alone does not stop one: a file importing itself twice fans out, so
+			// bounding the depth at 32 bounds the stack but leaves up to 2^32 files
+			// to open before the recursion gives up - a hang inside Explorer rather
+			// than a crash, which is not an improvement.
+			//
+			// m_imports cannot answer this. It records every file ever imported, so
+			// it cannot tell a cycle from a shared snippet legitimately imported
+			// from two places. _imports is exactly the set currently open, and each
+			// entry keeps the path it loaded, so it is the right thing to ask.
+			for(auto &imp : _imports)
+			{
+				if(imp && !imp->path.empty() && imp->path.hash() == hash)
+				{
+					Logger::Error(L"line[%d] column[%d] circular import, '%s'",
+								  line, col, path.c_str());
+					return 0;
+				}
+			}
+
 			if(_imports.size() >= MaxImportDepth)
 			{
 				Logger::Error(L"line[%d] column[%d] import nesting deeper than %d, refusing '%s'",

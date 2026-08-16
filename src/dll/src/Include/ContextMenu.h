@@ -686,6 +686,14 @@ plutovg_move_to(pluto, start.x, start.y);
 
 			std::vector<menuitem_t *> __movable_system_items;
 
+			// Items displaced from the tree by duplicate removal. They are freed at
+			// Uninitialize rather than at the point of replacement, because
+			// __map_system_menu still holds keys for the displaced node and every
+			// submenu beneath it, and build_main_system_menuitems dereferences
+			// whatever it finds there. Freeing on the spot turned a leak into a
+			// write through a dangling pointer.
+			std::vector<menuitem_t *> __replaced_system_items;
+
 		public:// functions
 
 			bool set_prop(auto hWnd) { return Prop::Set(hWnd, this); }

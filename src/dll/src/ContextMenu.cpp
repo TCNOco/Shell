@@ -3293,21 +3293,28 @@ namespace Nilesoft
 
 			if(ver->IsWindows11OrGreater())
 			{
-				// TextScaleFactor is the accessibility text size as a percentage, and it
-				// is absent unless the user has changed it. cbData is in/out: it was left
-				// uninitialised and the result unchecked, so a garbage stack value decided
-				// whether the read happened at all. The block then overwrote lfHeight
-				// unconditionally - discarding lfMenuFont, which SystemParametersInfoForDpi
-				// above has already scaled for this monitor - and wrote a positive cell
-				// height over a negative character height, which is not the same unit.
-				DWORD dwTextScaleFactor = 0, cbData = sizeof(dwTextScaleFactor);
-				if(ERROR_SUCCESS == ::RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Accessibility",
+				// TextScaleFactor is the accessibility text size as a percentage, and
+				// it is absent unless the user has changed it. cbData is in/out: it
+				// was left uninitialised and the result unchecked, so a garbage stack
+				// value decided whether the read happened at all.
+				//
+				// That is all that is fixed here. The height expression below is the
+				// original one, deliberately: it overwrites lfMenuFont with a larger
+				// Windows 11 size, and _theme.text.size, _theme.image.size and
+				// font.icon.Size are all derived from std::abs(lfHeight), so
+				// substituting lfMenuFont shrank menu text and icons for every
+				// Windows 11 user. It also mixes units - a positive cell height where
+				// lfMenuFont gives a negative character height - but correcting the
+				// sign changes the rendered size again, and that is not something to
+				// change without being able to look at the result.
+				DWORD dwTextScaleFactor = 100, cbData = sizeof(dwTextScaleFactor);
+				if(ERROR_SUCCESS != ::RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Accessibility",
 												   L"TextScaleFactor", RRF_RT_DWORD, nullptr,
-												   &dwTextScaleFactor, &cbData)
-				   && dwTextScaleFactor > 100)
-				{
-					_theme.font.lfHeight = _theme.font.lfHeight * static_cast<long>(dwTextScaleFactor) / 100;
-				}
+												   &dwTextScaleFactor, &cbData))
+					dwTextScaleFactor = 100;
+
+				long scale = ((dpi.val + 24) * static_cast<long>(dwTextScaleFactor)) / 100;
+				_theme.font.lfHeight = 12 * scale / 100;
 			}
 					
 			if(__font.name.is_string())
@@ -3884,15 +3891,17 @@ namespace Nilesoft
 												if(!item->disabled)
 												{
 													found_duplicate = 2;
-													// The vector owns its elements, so the entry
-													// being replaced has to be freed or it leaks
-													// with everything below it. Nothing else aliases
-													// it yet: __movable_system_items and the reads of
-													// __map_system_menu all belong to
-													// build_main_system_menuitems, which runs after
-													// this whole pass. A submenu's stale map entry is
-													// overwritten by the registration below.
-													delete im;
+													// Deferred, not freed here. The vector owns its elements, so
+													// the displaced entry has to be released eventually or it
+													// leaks with its whole subtree - but freeing it now dangles
+													// __map_system_menu, which holds a key for this node AND for
+													// every submenu beneath it, and build_main_system_menuitems
+													// later dereferences what it finds there and pushes into it.
+													// The registration below rewrites only this node's own key,
+													// and only when the replacement produces an identical one, so
+													// it cannot cover the subtree. Held until Uninitialize, by
+													// which point the map is finished with.
+													__replaced_system_items.push_back(im);
 													menu->items[indexof] = item.release();
 												}
 											}
@@ -4141,6 +4150,13 @@ namespace Nilesoft
 				_tip.destroy();
 
 				delete __system_menu_tree;
+
+				// After the tree, and after every reader of __map_system_menu has
+				// finished: these were displaced from the tree by duplicate removal
+				// and are still named by map entries until now.
+				for(auto item : __replaced_system_items)
+					delete item;
+				__replaced_system_items.clear();
 
 				__trace(L"ContextMenu.Uninitialized");
 				_uninitialized = true;
@@ -5645,16 +5661,29 @@ namespace Nilesoft
 						}
 					}
 
-					// This used to turn SPI_SETSELECTIONFADE off around defSubclassProc
-					// and back on afterwards, to suppress the system fade-out "and
-					// begin a re-implemented one". That replacement was never written -
-					// there is no animation code anywhere in this file - so all it did
-					// was override the user's own setting on every click.
+					// Suppresses the system fade-out across the dismissal. Removing this
+					// looked safe - the comment claimed it was making way for a
+					// "re-implemented" animation that was never written - but the menu
+					// background is painted black where it will be composited as glass,
+					// so letting USER32 fade the window out can show that black rather
+					// than the themed backdrop. Restored until someone can actually
+					// look at a dismissal with "Fade or slide menus into view" enabled,
+					// composition on, in both themes.
 					//
-					// Selection fade is a persistent per-user setting, so this wrote it
-					// twice per menu item click, and anything that stopped the thread
-					// between the two calls left it disabled for good. Users whose fade
-					// was already off took the early break, which is now the only path.
+					// Its real problem is unchanged and not fixed here: selection fade
+					// is a persistent per-user setting, so this writes it twice per
+					// click, and anything that stops the thread between the two calls
+					// leaves the user's setting disabled for good. Suppressing the fade
+					// for the window rather than for the user would be the fix.
+					int pvParam{};
+					::SystemParametersInfoW(SPI_GETSELECTIONFADE, 0, &pvParam, 0);
+					if(!pvParam)
+						break;
+
+					::SystemParametersInfoW(SPI_SETSELECTIONFADE, 0, FALSE, 0);
+					lret = defSubclassProc();
+					::SystemParametersInfoW(SPI_SETSELECTIONFADE, 0, (PVOID)TRUE, 0);
+					return lret;
 				}
 				break;
 				case MN_DBLCLK:

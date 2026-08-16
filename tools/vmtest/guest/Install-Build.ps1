@@ -143,14 +143,24 @@ if (-not $NoConfig) {
 public static extern int GetUserDefaultLocaleName(System.Text.StringBuilder lpLocaleName, int cchLocaleName);
 '@
     $sb = New-Object System.Text.StringBuilder 85
-    $locale = if ([VmTestLoc.Native]::GetUserDefaultLocaleName($sb, 85) -gt 0) { $sb.ToString() } else { '' }
+    $full = if ([VmTestLoc.Native]::GetUserDefaultLocaleName($sb, 85) -gt 0) { $sb.ToString() } else { '' }
 
-    if (-not $locale) {
-        Write-Warning 'GetUserDefaultLocaleName failed; locale check will use the en.nss fallback and fail'
-    }
-    elseif ($locale -eq 'en') {
-        # Would overwrite the fallback file and make the check tautological.
-        Write-Warning "guest locale is exactly 'en'; skipping locale file, the locale check cannot distinguish"
+    # Prefer the bare language over the full tag. Ten of the fifteen files in
+    # imports\lang are named that way (ar, it, ja, ko, no, ro, ru, sl, tr, ua),
+    # and shell.nss originally matched only the full tag, so none of them could
+    # ever be selected. Generating <full-tag>.nss here would have exercised the
+    # one path that was never broken and reported success while ten locales
+    # stayed unreachable.
+    #
+    # Unless the language is English: en.nss is the fallback file, so writing it
+    # would overwrite the very thing the check distinguishes against. On an
+    # English guest fall back to the full tag (en-GB.nss and such), which still
+    # proves selection works even though it is the easier of the two paths.
+    $bare = if ($full -match '-') { $full.Split('-')[0] } else { $full }
+    $locale = if ($bare -eq 'en') { $full } else { $bare }
+
+    if (-not $locale -or $locale -eq 'en') {
+        Write-Warning "cannot generate a locale file for '$full'; the locale check will fail"
     }
     else {
         $langDir = Join-Path $InstallDir 'imports\lang'

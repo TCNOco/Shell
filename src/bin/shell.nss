@@ -28,9 +28,18 @@
 // folder - so it never matched and every locale silently fell back to en.nss.
 $loc_path = app.dir + '\imports\lang\'
 import lang loc_path + "en.nss"
+
+// Full tag first, then the bare language, then English. sys.lang is
+// GetUserDefaultLocaleName, so it returns a full tag like ja-JP or it-IT - but
+// ten of the fifteen files shipped in imports\lang are named for the language
+// alone (ar, it, ja, ko, no, ro, ru, sl, tr, ua). Matching only the full tag
+// meant those ten could never be selected by anyone. sys.lang.name is the
+// ISO 639 code, which is what they are named after.
 import lang if(path.exists(loc_path + sys.lang + ".nss"),
                loc_path + sys.lang + ".nss",
-               loc_path + "en.nss")
+               if(path.exists(loc_path + sys.lang.name + ".nss"),
+                  loc_path + sys.lang.name + ".nss",
+                  loc_path + "en.nss"))
 
 // or import lang 'imports/lang/en.nss'
 

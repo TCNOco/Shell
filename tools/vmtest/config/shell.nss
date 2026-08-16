@@ -48,9 +48,15 @@ item(where=window.is_desktop title=vmtest_imported_title pos=6 cmd='')
 // instead and the expected-item assertion fails by name.
 $loc_path = app.dir + '\imports\lang\'
 import lang loc_path + "en.nss"
+
+// Same three-step chain as the shipped shell.nss: full tag, then the bare
+// language, then English. Install-Build.ps1 generates whichever of the first two
+// can be distinguished from the fallback on this guest.
 import lang if(path.exists(loc_path + sys.lang + ".nss"),
                loc_path + sys.lang + ".nss",
-               loc_path + "en.nss")
+               if(path.exists(loc_path + sys.lang.name + ".nss"),
+                  loc_path + sys.lang.name + ".nss",
+                  loc_path + "en.nss"))
 
 item(where=window.is_desktop title=loc.vmtest_locale pos=7 cmd='')
 

@@ -210,13 +210,19 @@ namespace Nilesoft
 					key_treatas.format(L"CLSID\\%s\\TreatAs",
 									   string::ToString(IID_FileExplorerContextMenu, 2).c_str());
 
-					bool ours = false;
-					if(auto key = Registry::ClassesRoot.OpenSubKey(key_treatas, true, false); key)
-					{
-						string treatas;
-						if(key.ReadString(nullptr, treatas))
-							ours = treatas.equals(CLS_ContextMenu);
-					}
+					// RegGetValueW rather than RegistryKey::ReadString. ReadString
+					// takes the stored byte count and does release(len - 1), i.e. it
+					// assumes the value was written with its terminator. Ours was
+					// not, so it returned the CLSID one character short and this
+					// check never matched - leaving the redirect behind on every
+					// uninstall, which is worse than the unconditional delete it
+					// replaced. RegGetValueW terminates for us either way, so
+					// machines written by an older build are recognised too.
+					wchar_t treatas[64]{};
+					DWORD cb = sizeof(treatas);
+					auto ours = ERROR_SUCCESS == ::RegGetValueW(HKCR, key_treatas.c_str(), nullptr,
+																RRF_RT_REG_SZ, nullptr, treatas, &cb)
+							 && string(treatas).equals(CLS_ContextMenu);
 
 					if(ours)
 						Registry::DeleteSubKey(HKCR, key_treatas);
