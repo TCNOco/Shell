@@ -61,8 +61,26 @@ namespace LiveMenu {
   }
 }
 '@
-    try { Add-Type -TypeDefinition $src -ErrorAction Stop }
-    catch { Write-Error "could not compile the interop types: $($_.Exception.Message)"; exit 3 }
+    # The C# compiler reads LIB and INCLUDE, and reports a non-existent entry as
+    # a warning - which it then treats as an error, so an unrelated stale path
+    # left behind by some other toolchain stops this script compiling. Neither
+    # variable is needed here: nothing outside the framework is referenced.
+    # Cleared for the duration and put back afterwards.
+    $savedLib = $env:LIB
+    $savedInc = $env:INCLUDE
+    try {
+        $env:LIB = ''
+        $env:INCLUDE = ''
+        Add-Type -TypeDefinition $src -ErrorAction Stop
+    }
+    catch {
+        Write-Error "could not compile the interop types: $($_.Exception.Message)"
+        exit 3
+    }
+    finally {
+        $env:LIB = $savedLib
+        $env:INCLUDE = $savedInc
+    }
 }
 if (-not ('LiveMenu.Native' -as [type])) { Write-Error 'interop types still unavailable'; exit 3 }
 
