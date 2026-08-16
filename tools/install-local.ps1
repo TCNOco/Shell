@@ -171,8 +171,41 @@ if ($keepConfig) {
 }
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-Copy-Item (Join-Path $bin 'shell.dll') $InstallDir -Force
-Copy-Item (Join-Path $bin 'shell.exe') $InstallDir -Force
+
+# Leftovers from a previous in-use install, once whatever held them has exited.
+Get-ChildItem $InstallDir -Filter '*.old-*' -File -ErrorAction SilentlyContinue | ForEach-Object {
+    Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue
+}
+
+# Windows will not let a mapped image be overwritten, but it will let it be
+# renamed: the mapping follows the file, so whatever is still running keeps
+# working and the new binary lands in its place.
+#
+# This matters more than it used to. shell.dll no longer unloads while its IAT
+# hooks are installed - it cannot, or the hooks dangle and the host faults - so
+# every process that has ever raised a menu holds the file until it exits. That
+# includes background things like Everything's service. Without this, updating
+# the DLL would mean hunting processes or rebooting.
+function Copy-Binary {
+    param([string] $Source, [string] $Destination)
+
+    try {
+        Copy-Item $Source $Destination -Force -ErrorAction Stop
+        return
+    }
+    catch [System.IO.IOException] {
+        if (-not (Test-Path $Destination)) { throw }
+    }
+
+    $leaf  = Split-Path $Destination -Leaf
+    $aside = "$leaf.old-" + (Get-Date -Format 'yyyyMMdd-HHmmss')
+    Rename-Item -LiteralPath $Destination -NewName $aside -Force -ErrorAction Stop
+    Copy-Item $Source $Destination -Force -ErrorAction Stop
+    Write-Warn "$leaf was in use; the old one is now $aside and is deleted on a later run"
+}
+
+Copy-Binary (Join-Path $bin 'shell.dll') (Join-Path $InstallDir 'shell.dll')
+Copy-Binary (Join-Path $bin 'shell.exe') (Join-Path $InstallDir 'shell.exe')
 foreach ($opt in 'shell.nss', 'imports') {
     $src = Join-Path $bin $opt
     if (Test-Path $src) { Copy-Item $src $InstallDir -Recurse -Force }
