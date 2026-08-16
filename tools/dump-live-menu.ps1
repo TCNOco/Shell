@@ -41,6 +41,8 @@ if (-not ('LiveMenu.Native' -as [type])) {
 using System;
 using System.Runtime.InteropServices;
 namespace LiveMenu {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int left, top, right, bottom; }
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int x, y; }
   [StructLayout(LayoutKind.Sequential)]
   public struct MENUITEMINFO {
     public int cbSize; public int fMask; public int fType; public int fState; public int wID;
@@ -58,6 +60,12 @@ namespace LiveMenu {
     public static extern bool GetMenuItemInfoW(IntPtr hMenu, uint item, bool byPos, ref MENUITEMINFO mii);
     [DllImport("user32.dll")]
     public static extern bool IsWindowVisible(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+    [DllImport("user32.dll")] public static extern int GetWindowLongW(IntPtr h, int i);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassNameW(IntPtr h, System.Text.StringBuilder s, int n);
+    [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
   }
 }
 '@
@@ -142,6 +150,24 @@ for ($i = 0; $i -lt $count; $i++) {
         $i, $mii.wID, $mii.cch, ('0x' + $mii.dwItemData.ToString('X')), ($flags -join ','), $text
 }
 
+# Where the popup actually is, versus where the pointer is and what is under it.
+# A menu that receives no input may simply not be where the visible background is.
+$r = New-Object LiveMenu.RECT
+[void][LiveMenu.Native]::GetWindowRect($hwnd, [ref]$r)
+$style   = [LiveMenu.Native]::GetWindowLongW($hwnd, -16)
+$exstyle = [LiveMenu.Native]::GetWindowLongW($hwnd, -20)
+Write-Host ''
+Write-Host ("popup rect: ({0},{1})-({2},{3})  {4}x{5}  style=0x{6:X8} exstyle=0x{7:X8}" -f `
+    $r.left, $r.top, $r.right, $r.bottom, ($r.right-$r.left), ($r.bottom-$r.top), $style, $exstyle) -ForegroundColor Green
+
+$cur = New-Object LiveMenu.POINT
+[void][LiveMenu.Native]::GetCursorPos([ref]$cur)
+$under = [LiveMenu.Native]::WindowFromPoint($cur)
+$sb2 = New-Object System.Text.StringBuilder 256
+[void][LiveMenu.Native]::GetClassNameW($under, $sb2, 256)
+Write-Host ("cursor at ({0},{1}); window under cursor = {2} class='{3}'{4}" -f `
+    $cur.x, $cur.y, $under, $sb2.ToString(),
+    $(if ($under -eq $hwnd) { '  <- the popup itself' } else { '  <- NOT the popup' })) -ForegroundColor Green
 Write-Host ''
 Write-Host "non-separator rows: $($withText + $blank)   with text: $withText   blank: $blank   separators: $seps" -ForegroundColor Cyan
 Write-Host ''
