@@ -30,9 +30,10 @@ jobs:
       matrix:
         platform: [x64, x86, arm64]
     steps:
+      # See build.yml: the submodules are not built by any project, so they are
+      # not checked out.
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: microsoft/setup-msbuild@v2
