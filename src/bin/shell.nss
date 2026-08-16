@@ -21,7 +21,12 @@
 }
 
 // localization
-$loc_path='imports\lang\'
+// Absolute, not relative. An import path is rooted against the importing file's
+// own directory, but that happens after the expression has been evaluated, so
+// the path.exists() below is tested as-is. A relative path there is resolved
+// against the host process working directory - Explorer's, not the install
+// folder - so it never matched and every locale silently fell back to en.nss.
+$loc_path = app.dir + '\imports\lang\'
 import lang loc_path + "en.nss"
 import lang if(path.exists(loc_path + sys.lang + ".nss"),
                loc_path + sys.lang + ".nss",
