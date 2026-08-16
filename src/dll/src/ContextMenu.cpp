@@ -4190,13 +4190,27 @@ namespace Nilesoft
 
 				if(diag == 1 || (_n_drawitem == 0 && !_items.empty()))
 				{
+					// The draw path runs identically in a host where nothing appears,
+					// so what differs is the state it draws WITH. These are every
+					// gate that can blank the output while leaving the frame:
+					//   hTheme     - null removes all text; DrawThemeTextEx is the
+					//                only text call in the DLL, with no GDI fallback.
+					//   composition- true fills item backgrounds with black on the
+					//                assumption the layered window composites it away.
+					//   text/back  - alpha 0 makes draw_string return before drawing.
 					Logger::Warning(L"menu teardown: items=%zu measureitem=%u drawitem=%u "
-									L"unmatched=%u owner=%p class='%s' explorer=%d "
-									L"first_unmatched(id=%u menu=%p ourmenu=%p)%s",
+									L"unmatched=%u owner=%p class='%s' explorer=%d | "
+									L"hTheme=%p composition=%d(dwm=%d act=%d) "
+									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
 									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough,
 									hwnd.owner, Window::class_name(hwnd.owner).c_str(),
 									Selected.loader.explorer ? 1 : 0,
-									_pt_id, _pt_menu, _pt_first_item_menu,
+									_hTheme,
+									static_cast<bool>(composition) ? 1 : 0,
+									composition.DwmEnabled ? 1 : 0, composition.activated ? 1 : 0,
+									_theme.text.color.nor.to_RGB(), static_cast<int>(_theme.text.color.nor.a),
+									_theme.back.color.sel.to_RGB(), static_cast<int>(_theme.back.color.sel.a),
+									_theme.transparent ? 1 : 0, _theme.background.effect,
 									(_n_drawitem == 0 && !_items.empty())
 										? L" -- NO WM_DRAWITEM"
 										: L"");
