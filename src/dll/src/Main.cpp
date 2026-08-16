@@ -311,6 +311,24 @@ struct taskbar_t
 
 	static bool is_allowed_area(HWND hTaskbar, const Point &pt)
 	{
+		// ElementFromPoint plus three property gets is four cross-apartment round
+		// trips, taken on the thread pumping the taskbar's messages. One right-click
+		// asks this twice - once from WM_MOUSEACTIVATE and again from WM_CONTEXTMENU,
+		// with the cursor in the same place both times - so the answer is memoised
+		// just long enough to cover a single click. A later click at the same point
+		// re-reads the tree, so a tray icon appearing under the cursor is not missed.
+		// thread_local because the primary and secondary taskbars need not be pumped
+		// by the same thread.
+		static thread_local HWND cached_hwnd = nullptr;
+		static thread_local Point cached_pt{};
+		static thread_local uint32_t cached_tick = 0;
+		static thread_local bool cached_ret = false;
+
+		const auto now = ::GetTickCount();
+		if(hTaskbar == cached_hwnd && pt.x == cached_pt.x && pt.y == cached_pt.y
+		   && (now - cached_tick) < 250)
+			return cached_ret;
+
 		bool ret = false;
 
 		if(!_IUIAutomation)
@@ -355,11 +373,28 @@ struct taskbar_t
 					{
 						if(!::lstrcmpiW(elem.id, L"SystemTrayIcon"))
 							ret = !::lstrcmpiW(elem.type, L"SystemTray.OmniButton");
-						//_log.info(L"id=[%s],\t[%s], [%s]", elem.id, elem.type, elem.name);
 					}
 				}
+
+				// The strings matched above were taken from a Windows 11 21H2
+				// automation tree. When a later build renames them nothing matches,
+				// this returns false, and the taskbar falls back to Windows' own
+				// menu - the right way to fail, but it leaves no trace of what the
+				// names became. __trace compiles to nothing unless TRACE is defined,
+				// so this costs a release build nothing and does not help a user
+				// report either; it is here so that reproducing the problem in a
+				// debug build prints the actual tree instead of needing this
+				// instrumentation written from scratch first.
+				__trace(L"taskbar element id=[%s] type=[%s] name=[%s] allowed=%d",
+						elem.id ? elem.id : L"", elem.type ? elem.type : L"",
+						elem.name ? elem.name : L"", ret ? 1 : 0);
 			}
 		}
+
+		cached_hwnd = hTaskbar;
+		cached_pt = pt;
+		cached_tick = now;
+		cached_ret = ret;
 		return ret;
 	}
 

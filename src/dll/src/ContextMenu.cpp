@@ -3858,18 +3858,13 @@ namespace Nilesoft
 
 							item->ui = Initializer::get_muid(item->hash);
 
-							if(!item->is_menu() && is_root && item->disabled)
-							{
-								if(item->uid() == IDENT_ID_EMPTY_RECYCLE_BIN)
-								{
-									item->disabled = false;
-									SHQUERYRBINFO sqrbi = { sizeof(SHQUERYRBINFO) };
-									DLL::Invoke<HRESULT>(L"shell32.dll", "SHQueryRecycleBinW", nullptr, &sqrbi);
-									if((sqrbi.i64Size + sqrbi.i64NumItems) == 0)
-										item->disabled = true;
-								}
-							}
-
+							// A disabled "Empty Recycle Bin" used to be second-guessed here
+							// with SHQueryRecycleBinW and a null root, which walks the bin
+							// on every drive and counts every item in it. That ran
+							// synchronously while the menu was being built, so the menu
+							// took longer to open the more was in the bin - issue #468,
+							// where Windows' own menu was unaffected because Windows does
+							// not do this. Explorer's own enabled state is used as-is now.
 							if(_settings.modify_items.remove.duplicate)
 							{
 								// indexof has to advance with the scan. It used to be
