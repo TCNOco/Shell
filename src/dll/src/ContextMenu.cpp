@@ -4615,8 +4615,13 @@ namespace Nilesoft
 							long x = rect.left + (rect.width() / 2) - (size.cx / 2);
 							long y = rect.top - size.cy - ctx->dpi(10);
 
-							if(x < 0) x = 0;
-							if(y < 0) y = rect.bottom + ctx->dpi(10);
+							// Against the monitor's own edges, not zero. These are
+							// virtual-screen coordinates, so a display placed left of or
+							// above the primary starts negative and clamping to 0 threw
+							// the tip onto the primary monitor. The right edge below was
+							// already written this way.
+							if(x < ctx->_rcMonitor.left) x = ctx->_rcMonitor.left;
+							if(y < ctx->_rcMonitor.top) y = rect.bottom + ctx->dpi(10);
 
 							if((x + size.cx) > ctx->_rcMonitor.right)
 								x = ctx->_rcMonitor.right - size.cx;
@@ -5471,8 +5476,17 @@ namespace Nilesoft
 
 							if(wnd->has_scroll)
 							{
-								wp->y = (ctx->_rcMonitor.height() - wnd->height) / 2;
+								// height() is a size; wp->y is an absolute virtual-screen
+								// coordinate. Without the monitor's own top the popup was
+								// offset by exactly _rcMonitor.top, which put it on the
+								// primary display whenever the menu was opened on one
+								// placed above it.
+								wp->y = ctx->_rcMonitor.top + ((ctx->_rcMonitor.height() - wnd->height) / 2);
 							}
+							// Both branches below are inert - every statement in them is
+							// commented out - so the height()/bottom mismatch in their
+							// conditions changes nothing. Left as found rather than
+							// half-corrected into something that looks live.
 							else if((wnd->height + 100) > (ctx->_rcMonitor.height() / 2))
 							{
 								//wp->y -= 50;
