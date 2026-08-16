@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 //constexpr auto WC_MENU_Layer = L"Nilesoft.Shell.Window.Layers";
 //constexpr auto WC_MENU_Layers = L"Nilesoft.Shell.Window.Border";
@@ -155,16 +155,6 @@ namespace Nilesoft
 				bool regoin(uint8_t radius = 0) const {
 					return WND::Regoin(handle, 0, 0, width + 1, height + 1, radius);
 				}
-
-				void hidden()
-				{
-					if(handle)
-					{
-						//ShowWindowAsync()
-						if(::ShowWindow(handle, SW_HIDE))
-							visible = false;
-					}
-				}
 			};
 
 			window_t layer;
@@ -203,18 +193,6 @@ namespace Nilesoft
 				if(hdc) ::ReleaseDC(handle, hdc);
 				hbitmap = {};
 				handle = {};
-			}
-
-			void hidden()
-			{
-				//ShowWindowAsync()
-				blurry.hidden();
-				layer.hidden();
-				if(handle)
-				{
-					if(::ShowWindow(handle, SW_HIDE))
-						visible = false;
-				}
 			}
 
 			bool show_layers()

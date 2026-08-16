@@ -54,11 +54,6 @@ namespace Nilesoft
 				return Run(m_explorer, arg, nullptr, m_open, SW_SHOWNORMAL);
 			}
 
-			static BOOL OpenAsAdmin(const wchar_t* path, const wchar_t* parameters, const wchar_t* directory = nullptr, int showCmd = SW_SHOWNORMAL)
-			{
-				return Run(path, parameters, directory, m_run_as, showCmd);
-			}
-
 			static BOOL Open(SHELLEXECUTEINFOW * sei)
 			{
 				return ::ShellExecuteExW(sei);

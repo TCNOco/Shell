@@ -49,88 +49,6 @@ void plutovg_surface_write_to_hdc(plutovg_surface_t *surface, int x, int y, HDC 
 }
 */
 
-struct DWM
-{
-	enum class BackdropType : int
-	{
-		Default = 0,
-		None = 1,
-		Mica = 2,
-		Acrylic = 3,
-		Tabbed = 4,
-	};
-
-	enum class Corner : int
-	{
-		Default = 0,
-		None = 1,
-		Round = 2,
-		RoundSmall = 3,
-		Last = 4,
-	};
-
-	HWND handle{};
-	DWM(HWND hWnd = nullptr) : handle(hWnd) {}
-
-	HRESULT RemoveCorner()
-	{
-		return SetCorner(Corner::None);
-	}
-
-	HRESULT SetCorner(Corner value = Corner::Round)
-	{
-		const auto DWMWA_WINDOW_CORNER_PREFERENCE = 33U;
-		return SetAttribute(DWMWA_WINDOW_CORNER_PREFERENCE, value);
-	}
-
-	HRESULT SetBorderColor(COLORREF color)
-	{
-		const auto DWMWA_BORDER_COLOR = 34U;
-		return SetAttribute(DWMWA_BORDER_COLOR, color);
-	}
-
-	/// <summary>
-	/// Enable or disable immersive dark mode.
-	/// Requires Windows build 19041 or higher.
-	/// </summary>
-	HRESULT SetImmersiveDarkMode(BOOL state = TRUE)
-	{
-		const auto DWMWA_IMMERSIVE_DARK_MODE = 20U;
-		return SetAttribute(DWMWA_IMMERSIVE_DARK_MODE, state);
-	}
-
-	/// <summary>
-	/// Set backdrop type on target window
-	/// Requires Windows build 22523 or higher.
-	/// </summary>
-	HRESULT SetBackdropType(BackdropType backdropType)
-	{
-		const auto DWMWA_SYSTEMBACKDROP_TYPE = 38;
-		return SetAttribute(DWMWA_SYSTEMBACKDROP_TYPE, backdropType);
-	}
-
-	/// <summary>
-	/// Enable or Disable Mica on target window
-	/// Supported on Windows builds from 22000 to 22523. It doesn't work on 22523, use <see cref="SetBackdropType(IntPtr, DWM_SYSTEMBACKDROP_TYPE)"/> instead.
-	/// </summary>
-	HRESULT SetMica(BOOL state = true)
-	{
-		const auto DWMWA_MICA = 1029U;
-		return SetAttribute(DWMWA_MICA, state);
-	}
-
-	template<typename T>
-	HRESULT SetAttribute(DWORD dwAttribute, T pvAttribute)
-	{
-		return ::DwmSetWindowAttribute(handle, dwAttribute, (const void *)&pvAttribute, sizeof(T));
-	}
-
-	auto ExtendFrameIntoClientArea(MARGINS margins = { -1 })
-	{
-		return ::DwmExtendFrameIntoClientArea(handle, &margins);
-	}
-};
-
 inline HMENU GET_HMENU(HWND hWnd) { return SendMSG<HMENU>(hWnd, MN_GETHMENU, 0, 0); }
 
 auto ver = &Windows::Version::Instance();
@@ -1642,24 +1560,18 @@ namespace Nilesoft
 
 		struct DRAWITEMSTATE
 		{
+			// Only these two are ever read. The others - grayed, checked, focus,
+			// default$, hotlight, inactive, no_accel, no_focus_rect - had no reader
+			// anywhere, and `checked` was being set from ODS_SELECTED rather than
+			// ODS_CHECKED, so it would have been wrong the moment anyone used it.
 			bool selected{};
 			bool disabled{};
-			bool grayed{};
-			bool checked{};
-			bool focus{};
-			bool default${};
-			bool hotlight{};
-			bool inactive{};
-			bool no_accel{};
-			bool no_focus_rect{};
 
 			DRAWITEMSTATE(uint32_t flags)
 			{
 				Flag<uint32_t> fs = flags;
 				selected = fs.has(ODS_SELECTED);
-				grayed = fs.has(ODS_GRAYED);
-				disabled = fs.has(ODS_DISABLED) || grayed;
-				checked = fs.has(ODS_SELECTED);
+				disabled = fs.has(ODS_DISABLED) || fs.has(ODS_GRAYED);
 			}
 		};
 
@@ -3370,7 +3282,10 @@ namespace Nilesoft
 			}
 			else if(S_OK != ::GetThemeSysFont(_hTheme, TMT_MENUFONT, &_theme.font))
 			{
-				_theme.font.lfHeight = 12;dpi.valuexx<long>(12);
+				// The DPI-scaled value was computed and discarded right after a plain 12,
+				// so this fallback font stayed 12px at any scaling. Reached only when
+				// both SPI_GETNONCLIENTMETRICS and GetThemeSysFont fail.
+				_theme.font.lfHeight = dpi.valuexx<long>(12);
 				_theme.font.lfQuality = DEFAULT_QUALITY;
 				string::Copy(_theme.font.lfFaceName, L"Segoe UI");
 			}
@@ -3840,7 +3755,11 @@ namespace Nilesoft
 								if(!moveto.equals(item->path))
 								{
 									item->path = moveto.move();
-									if(auto submenu = __map_system_menu[item->path.hash()]; submenu)
+									// find, not operator[]: a miss would default-construct a
+									// null entry and insert it, so every unmatched moveto
+									// target grew the map during the menu build.
+									auto found = __map_system_menu.find(item->path.hash());
+									if(auto submenu = found != __map_system_menu.end() ? found->second : nullptr; submenu)
 									{
 										item->parent = submenu;
 										submenu->items.push_back(item);
@@ -4727,8 +4646,13 @@ namespace Nilesoft
 				Compositor::TransparentArea(hWnd);
 			}
 
+			// DWMWA_NCRENDERING_ENABLED is documented get-only, so setting it always
+			// returned E_INVALIDARG into a discarded HRESULT. The two below do
+			// succeed, and are kept: they act on a DWM non-client frame that a
+			// #32768 popup almost certainly does not have, but "almost certainly" is
+			// reasoning, not a measurement, and confirming it needs a visual pass
+			// over both themes, RTL, and composition on and off.
 			BOOL ENABLED = TRUE;
-			::DwmSetWindowAttribute(hWnd, DWMWA_NCRENDERING_ENABLED, &ENABLED, sizeof(BOOL));
 			::DwmSetWindowAttribute(hWnd, DWMWA_ALLOW_NCPAINT, &ENABLED, sizeof(BOOL));
 			::DwmSetWindowAttribute(hWnd, DWMWA_NONCLIENT_RTL_LAYOUT, &ENABLED, sizeof(BOOL));
 
@@ -5073,7 +4997,6 @@ namespace Nilesoft
 		{
 			if(!wnd || !wnd->ctx) return false;
 
-			DWM dwm;
 			auto layer = &wnd->layer;
 			auto blurry = &wnd->blurry;
 			auto border = _theme.border.size;
@@ -5135,10 +5058,6 @@ namespace Nilesoft
 						if(tintColor == 0)
 							tintColor = 0x01000000;
 					}
-
-					dwm.handle = blurry->handle;
-					//dwm.SetImmersiveDarkMode();
-					//dwm.ExtendFrameIntoClientArea();
 
 					Compositor::TransparentArea(blurry->handle);
 					accent.color = tintColor;

@@ -461,18 +461,14 @@ HRESULT __stdcall CoCreateInstanceHook(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWO
 				_this.is_uwp = is_UWP;
 				_this.clsid = Guid(rclsid).to_string(2);
 
-				bool test = Keyboard::IsKeyDown(VK_MENU);
-				if(test)
-				{
-					Timer t;
-					t.start();
-					hr = _CoCreateInstance.invoke(rclsid, pUnkOuter, dwClsContext, riid, ppv);
-					t.stop();
-					auto elapsed = (int)t.elapsed_milliseconds();
-					_log.write(L"%d%s\t%s\t%s\r\n", elapsed, elapsed > 0 ? L"ms" : L"" , _this.clsid.c_str(), is_UWP ? L"UWP":L"");
-					return hr;
-				}
-
+				// Holding Alt used to divert into a timing path that wrote a line to
+				// shell.log and returned early. This hook runs on every COM activation
+				// on every thread of the host, so that cost a GetAsyncKeyState per
+				// activation, and when Alt happened to be down, a CreateFile/Write/
+				// CloseHandle round trip under a global mutex on the menu path -
+				// Logger reopens the file for each write. Returning early also skipped
+				// the suppression below, so an undocumented modifier silently changed
+				// which shell extensions were filtered.
 				for(auto si : _initializer.cache->statics)
 				{
 					if(si->clsid.empty() || (si->where && !context.eval_bool(si->where)))
@@ -483,20 +479,11 @@ HRESULT __stdcall CoCreateInstanceHook(REFCLSID rclsid, LPUNKNOWN pUnkOuter, DWO
 						for(auto &id : si->clsid)
 						{
 							if(id.equals(rclsid))
-							{
-								if(test && *ppv)
-								{
-									((IUnknown *)*ppv)->Release();
-									*ppv = nullptr;
-								}
 								return E_NOINTERFACE;
-							}
 						}
 					}
 				}
 
-				if(test)
-					return hr;
 			}
 		}
 	}
