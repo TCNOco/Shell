@@ -146,6 +146,9 @@ public:
 	private:
 		string _path;
 		HANDLE hFile = INVALID_HANDLE_VALUE;
+		// Set once the path has been redirected to a writable location, so the
+		// fallback in open() cannot loop.
+		bool _redirected = false;
 		//Logger() = default;
 
 	public:

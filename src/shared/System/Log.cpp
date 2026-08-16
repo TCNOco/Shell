@@ -73,6 +73,34 @@ namespace Nilesoft
 				return open(OPEN_EXISTING);
 			}
 
+			// The default path is the module's own, which for an installed build
+			// is under Program Files. Everything that matters runs at medium
+			// integrity - Explorer, and every third-party host - and none of it
+			// can write there, so the log was silently empty in exactly the
+			// processes worth diagnosing. The only entries it ever collected came
+			// from shell.exe during registration, which runs elevated, and that
+			// made an empty log look like "nothing went wrong".
+			//
+			// Fall back once, to somewhere the user can always write. Tried only
+			// on a denial and only when not already redirected, so a writable
+			// install still logs beside the binary as before.
+			if((error == ERROR_ACCESS_DENIED || error == ERROR_WRITE_PROTECT)
+			   && !_redirected)
+			{
+				wchar_t appdata[MAX_PATH]{};
+				if(::GetEnvironmentVariableW(L"LOCALAPPDATA", appdata, MAX_PATH))
+				{
+					string dir = appdata;
+					dir += L"\\";
+					dir += APP_FULLNAME;
+					::CreateDirectoryW(dir.c_str(), nullptr);
+
+					_redirected = true;
+					_path = (dir + L"\\" + IO::Path::Name(_path)).move();
+					return open(creation);
+				}
+			}
+
 			hFile = INVALID_HANDLE_VALUE;
 
 			return false;
