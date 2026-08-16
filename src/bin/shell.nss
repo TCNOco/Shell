@@ -1,7 +1,18 @@
 ﻿settings
 {
 	priority=1
-	exclude.where = !process.is_explorer
+
+	// Explorer, plus any host that invoked us as a registered context-menu
+	// handler. This used to be !process.is_explorer alone, which meant the menu
+	// was excluded in every other process: ContextMenu::Initialize bails at
+	// is_excluded() before building anything, so a third-party file manager fell
+	// straight through to its own menu no matter what else worked.
+	//
+	// window.is_contextmenuhandler is the capability, not an application name -
+	// it is true exactly when the host went through our IContextMenu, which is
+	// what makes this work for Everything, XYplorer, Total Commander and anything
+	// else honouring ContextMenuHandlers, with no per-application list.
+	exclude.where = !(process.is_explorer or window.is_contextmenuhandler)
 
 	// showdelay sets SPI_SETMENUSHOWDELAY, the delay before a submenu opens on
 	// hover. That is a per-user system setting, and setting it here overrides
