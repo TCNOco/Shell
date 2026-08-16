@@ -129,6 +129,15 @@ namespace Nilesoft
 			TokenError verify(const Ident &id, bool signer);
 			TokenError verify(const NativeMenu *menu, const Ident &id, bool _signed);
 
+			// Ceiling on import nesting. _imports is the stack of files currently
+			// open, so its depth is the nesting depth. Nothing else bounds the
+			// recursion: the duplicate check in load_import only traces and carries
+			// on, and it consults a list of every file ever imported rather than the
+			// ones still being parsed, so it cannot tell a cycle from a shared
+			// snippet legitimately imported twice. A config that imports itself
+			// therefore recursed until the stack was exhausted, inside Explorer.
+			static constexpr size_t MaxImportDepth = 32;
+
 			Lexer *import_push()
 			{
 				_imports.emplace_back(new Lexer);
