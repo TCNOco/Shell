@@ -11,10 +11,12 @@
     tracks that, not the host's - so every visible row is a MenuItemInfo we
     inserted. GetMenuItemInfoW therefore returns exactly the string we gave it.
 
-      rows have text  -> the data is fine and the paint path is at fault.
-                         Every string in the DLL goes through one call,
-                         DrawThemeTextEx, gated on _hTheme; a null _hTheme
-                         erases all text and nothing else.
+      rows have text  -> the data is fine and the fault is downstream: either
+                         the painting, or the popup being covered. The dump
+                         reports the z-order of our own layer window for that
+                         reason - the themed background is a separate layered
+                         window, and if it sorts above the popup it hides every
+                         item while looking exactly like a blank menu.
 
       rows are empty  -> the titles never got harvested, and the fault is in
                          build_system_menuitems, not in drawing.
@@ -66,6 +68,7 @@ namespace LiveMenu {
     [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr h, uint cmd);
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
+    [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr h, out int pid);
   }
 }
 '@
@@ -168,13 +171,63 @@ $sb2 = New-Object System.Text.StringBuilder 256
 Write-Host ("cursor at ({0},{1}); window under cursor = {2} class='{3}'{4}" -f `
     $cur.x, $cur.y, $under, $sb2.ToString(),
     $(if ($under -eq $hwnd) { '  <- the popup itself' } else { '  <- NOT the popup' })) -ForegroundColor Green
+# Z-order, popup versus our own layer window.
+#
+# The background people see is not painted into the popup. It is a separate
+# WS_EX_LAYERED window of class TCNO.Shell.Window, pushed to screen with
+# UpdateLayeredWindow. The item text and icons are painted into the popup's own
+# DC. So if the layer ends up ABOVE the popup, the background shows and the
+# items are hidden behind it - exactly a "themed background, no content" menu -
+# without anything being wrong in the drawing code.
+#
+# The layer is WS_EX_TRANSPARENT, so it cannot steal clicks; this explains the
+# missing content, not any missing input.
+$GW_HWNDFIRST = 0; $GW_HWNDNEXT = 2
+$order = New-Object System.Collections.ArrayList
+$w = [LiveMenu.Native]::GetWindow($hwnd, $GW_HWNDFIRST)
+$guard = 0
+while ($w -ne [IntPtr]::Zero -and $guard -lt 5000) {
+    [void]$order.Add($w)
+    $w = [LiveMenu.Native]::GetWindow($w, $GW_HWNDNEXT)
+    $guard++
+}
+$popupIdx = $order.IndexOf($hwnd)
+
+Write-Host ''
+Write-Host "z-order: popup is #$popupIdx of $($order.Count) top-level windows (0 = frontmost)" -ForegroundColor Green
+
+$layersAbove = 0
+for ($i = 0; $i -lt $order.Count; $i++) {
+    $h = $order[$i]
+    $sb = New-Object System.Text.StringBuilder 256
+    [void][LiveMenu.Native]::GetClassNameW($h, $sb, 256)
+    $cls = $sb.ToString()
+    if ($cls -ne 'TCNO.Shell.Window') { continue }
+
+    $lr = New-Object LiveMenu.RECT
+    [void][LiveMenu.Native]::GetWindowRect($h, [ref]$lr)
+    $vis = [LiveMenu.Native]::IsWindowVisible($h)
+    $procId = 0; [void][LiveMenu.Native]::GetWindowThreadProcessId($h, [ref]$procId)
+    $rel = if ($popupIdx -ge 0 -and $i -lt $popupIdx) { 'ABOVE the popup'; $layersAbove++ } else { 'below the popup' }
+    $ex  = [LiveMenu.Native]::GetWindowLongW($h, -20)
+    Write-Host ("  layer #{0} {1} visible={2} pid={3} rect=({4},{5})-({6},{7}) exstyle=0x{8:X8}  <- {9}" -f `
+        $i, $h, $vis, $procId, $lr.left, $lr.top, $lr.right, $lr.bottom, $ex, $rel) -ForegroundColor Green
+}
+if ($layersAbove -eq 0) { Write-Host '  (no TCNO.Shell.Window layer above the popup)' -ForegroundColor DarkGray }
+
 Write-Host ''
 Write-Host "non-separator rows: $($withText + $blank)   with text: $withText   blank: $blank   separators: $seps" -ForegroundColor Cyan
 Write-Host ''
 if ($blank -eq 0 -and $withText -gt 0) {
     Write-Host 'VERDICT: the menu data has text. The strings exist and are correct, so the' -ForegroundColor Yellow
-    Write-Host '         fault is in painting, not harvesting - DrawThemeTextEx is the only' -ForegroundColor Yellow
-    Write-Host '         text call in the DLL and it is gated on _hTheme.' -ForegroundColor Yellow
+    Write-Host '         fault is downstream of building the menu.' -ForegroundColor Yellow
+    if ($layersAbove -gt 0) {
+        Write-Host "         A TCNO.Shell.Window layer is ABOVE the popup, so the background is" -ForegroundColor Yellow
+        Write-Host '         covering the items. That alone produces a background-only menu.' -ForegroundColor Yellow
+    }
+    else {
+        Write-Host '         The layer is not covering the popup, so look at the painting itself.' -ForegroundColor Yellow
+    }
 }
 elseif ($withText -eq 0 -and $blank -gt 0) {
     Write-Host 'VERDICT: the menu data is genuinely textless. The titles were never harvested,' -ForegroundColor Yellow
