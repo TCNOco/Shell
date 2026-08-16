@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Read back the popup menu that is on screen right now.
@@ -33,23 +33,38 @@
 [CmdletBinding()]
 param([int] $Seconds = 20)
 
-Add-Type -Namespace LiveMenu -Name Native -UsingNamespace System.Text -MemberDefinition @'
-[StructLayout(LayoutKind.Sequential)]
-public struct MENUITEMINFO {
-    public int cbSize, fMask, fType, fState, wID;
-    public IntPtr hSubMenu, hbmpChecked, hbmpUnchecked;
-    public IntPtr dwItemData;
-    public IntPtr dwTypeData;
-    public int cch;
-    public IntPtr hbmpItem;
+# -TypeDefinition with an explicit try/catch: -MemberDefinition failed on this
+# machine and the only symptom was "Unable to find type [LiveMenu.Native]" from
+# the call sites, with the real compiler error nowhere in sight.
+if (-not ('LiveMenu.Native' -as [type])) {
+    $src = @'
+using System;
+using System.Runtime.InteropServices;
+namespace LiveMenu {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct MENUITEMINFO {
+    public int cbSize; public int fMask; public int fType; public int fState; public int wID;
+    public IntPtr hSubMenu; public IntPtr hbmpChecked; public IntPtr hbmpUnchecked;
+    public IntPtr dwItemData; public IntPtr dwTypeData; public int cch; public IntPtr hbmpItem;
+  }
+  public static class Native {
+    [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern IntPtr FindWindowW(string cls, string title);
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern IntPtr SendMessageW(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
+    [DllImport("user32.dll", SetLastError=true)]
+    public static extern int GetMenuItemCount(IntPtr hMenu);
+    [DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    public static extern bool GetMenuItemInfoW(IntPtr hMenu, uint item, bool byPos, ref MENUITEMINFO mii);
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr h);
+  }
 }
-[DllImport("user32.dll", SetLastError=true)] public static extern IntPtr FindWindowW(string cls, string title);
-[DllImport("user32.dll", SetLastError=true)] public static extern IntPtr SendMessageW(IntPtr h, uint msg, IntPtr wp, IntPtr lp);
-[DllImport("user32.dll", SetLastError=true)] public static extern int GetMenuItemCount(IntPtr hMenu);
-[DllImport("user32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-public static extern bool GetMenuItemInfoW(IntPtr hMenu, uint item, bool byPos, ref MENUITEMINFO mii);
-[DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
 '@
+    try { Add-Type -TypeDefinition $src -ErrorAction Stop }
+    catch { Write-Error "could not compile the interop types: $($_.Exception.Message)"; exit 3 }
+}
+if (-not ('LiveMenu.Native' -as [type])) { Write-Error 'interop types still unavailable'; exit 3 }
 
 $MN_GETHMENU   = 0x01E1
 $MIIM_STATE    = 0x00000001
@@ -87,7 +102,7 @@ Write-Host ''
 $withText = 0; $blank = 0; $seps = 0
 for ($i = 0; $i -lt $count; $i++) {
     $buf = New-Object System.Text.StringBuilder 1024
-    $mii = New-Object LiveMenu.Native+MENUITEMINFO
+    $mii = New-Object LiveMenu.MENUITEMINFO
     $mii.cbSize    = [System.Runtime.InteropServices.Marshal]::SizeOf($mii)
     $mii.fMask     = $MIIM_STRING -bor $MIIM_FTYPE -bor $MIIM_ID -bor $MIIM_STATE -bor $MIIM_SUBMENU -bor $MIIM_DATA
     $mii.dwTypeData = [System.Runtime.InteropServices.Marshal]::StringToHGlobalUni(''.PadRight(1024, ' '))
