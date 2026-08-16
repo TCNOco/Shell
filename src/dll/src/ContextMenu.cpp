@@ -1650,6 +1650,13 @@ namespace Nilesoft
 
 			if(!mii || (mii->title.empty() && !ident.equals(mii->wID)))
 			{
+				if(_n_passthrough++ == 0)
+				{
+					_pt_id = di->itemID;
+					_pt_menu = hMenu;
+					_pt_first_item_menu = _items.empty() ? nullptr : _items.front()->handle;
+				}
+
 				if(auto_gdi<HBITMAP> hbitmap(dc.createbitmap(rc->width(), rc->height())); hbitmap)
 				{
 					DC dcmem(dc.CreateCompatibleDC(), 1);
@@ -4184,13 +4191,14 @@ namespace Nilesoft
 				if(diag == 1 || (_n_drawitem == 0 && !_items.empty()))
 				{
 					Logger::Warning(L"menu teardown: items=%zu measureitem=%u drawitem=%u "
-									L"owner=%p class='%s' explorer=%d%s",
-									_items.size(), _n_measureitem, _n_drawitem, hwnd.owner,
-									Window::class_name(hwnd.owner).c_str(),
+									L"unmatched=%u owner=%p class='%s' explorer=%d "
+									L"first_unmatched(id=%u menu=%p ourmenu=%p)%s",
+									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough,
+									hwnd.owner, Window::class_name(hwnd.owner).c_str(),
 									Selected.loader.explorer ? 1 : 0,
+									_pt_id, _pt_menu, _pt_first_item_menu,
 									(_n_drawitem == 0 && !_items.empty())
-										? L" -- NO WM_DRAWITEM: the owner window is not "
-										  L"delivering owner-draw messages"
+										? L" -- NO WM_DRAWITEM"
 										: L"");
 				}
 

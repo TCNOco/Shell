@@ -703,6 +703,16 @@ plutovg_move_to(pluto, start.x, start.y);
 			uint32_t _n_measureitem{};
 			uint32_t _n_drawitem{};
 
+			// Draws that could not be matched to one of our items and were handed
+			// back to the host. get_item requires the menu handle AND the id to
+			// match, so recording both sides of the first failure says which of the
+			// two is wrong - and in a host whose menu owner is a hidden window, the
+			// host draws nothing, which is why the rows come out blank.
+			uint32_t _n_passthrough{};
+			uint32_t _pt_id{};
+			HMENU _pt_menu{};
+			HMENU _pt_first_item_menu{};
+
 		public:// functions
 
 			bool set_prop(auto hWnd) { return Prop::Set(hWnd, this); }
