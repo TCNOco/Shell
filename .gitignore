@@ -42,6 +42,11 @@ src/setup/wix/obj/
 src/packages/
 #src/bin/*.exe
 
+# plutovg/plutosvg are built from the submodules under src/lib; their objects
+# and the static libs they produce are output, not source.
+src/lib/obj/
+src/bin/lib/
+
 # Build output that lands in src/bin alongside the tracked .nss files
 *.lib
 *.exp

@@ -42,11 +42,14 @@ if ($Variant -eq 'old') {
         (Join-Path $repo 'src\lib\plutosvg\source')
         (Join-Path $repo 'src\lib\plutosvg\plutovg\include')
     )
+    # plutosvg before plutovg: the former references the latter.
     $libs = @(
-        (Join-Path $repo 'src\shared\Library\plutosvg-x64.lib')
-        (Join-Path $repo 'src\shared\Library\plutovg-x64.lib')
+        (Join-Path $repo 'src\bin\lib\x64\plutosvg-x64.lib')
+        (Join-Path $repo 'src\bin\lib\x64\plutovg-x64.lib')
     )
-    $defines = @('/DSVGBENCH_NEW')
+    # Without these the headers declare the API __declspec(dllimport), which
+    # does not resolve against a static lib.
+    $defines = @('/DSVGBENCH_NEW', '/DPLUTOVG_BUILD_STATIC', '/DPLUTOSVG_BUILD_STATIC')
 }
 
 foreach ($p in $includes + $libs) {

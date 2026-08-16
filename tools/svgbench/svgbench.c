@@ -134,6 +134,60 @@ static int load_corpus(const char *dir, svg_file *files, int max)
     return n;
 }
 
+#ifdef SVGBENCH_NEW
+// Scales the document into a size x size surface, preserving aspect and
+// centring, rather than letting plutosvg_document_render_to_surface decide.
+//
+// It has to be explicit, because an SVG carrying neither viewBox nor
+// width/height reports the CSS default 300x150 and then renders 1:1 into
+// whatever surface it is given -- so a 32px request shows the top-left 32x32
+// units of the artwork instead of the artwork. The old library scaled the
+// content to fit, and @code in src/bin/imports/images.nss is exactly that
+// shape, so leaving it implicit is a visible regression.
+//
+// 300x150 as the sentinel is the SVG default for a document with no intrinsic
+// size. A document genuinely authored at 300x150 with a viewBox would be
+// fitted by its extents instead of its viewBox, which crops differently only
+// if the artwork does not fill its own viewBox. No such icon ships here, and
+// the alternative -- misplacing artwork that has no viewBox at all -- is worse.
+static plutovg_surface_t *fit_render(plutosvg_document_t *doc, int size)
+{
+    float sx = 0.0f, sy = 0.0f;
+    float sw = plutosvg_document_get_width(doc);
+    float sh = plutosvg_document_get_height(doc);
+
+    if(sw == 300.0f && sh == 150.0f)
+    {
+        plutovg_rect_t ext;
+        if(plutosvg_document_extents(doc, NULL, &ext) && ext.w > 0.0f && ext.h > 0.0f)
+        {
+            sx = ext.x; sy = ext.y; sw = ext.w; sh = ext.h;
+        }
+    }
+
+    if(sw <= 0.0f || sh <= 0.0f) return NULL;
+
+    float scale = (float)size / sw;
+    float sv    = (float)size / sh;
+    if(sv < scale) scale = sv;
+
+    plutovg_surface_t *surf = plutovg_surface_create(size, size);
+    if(!surf) return NULL;
+
+    plutovg_canvas_t *canvas = plutovg_canvas_create(surf);
+    if(!canvas) { plutovg_surface_destroy(surf); return NULL; }
+
+    plutovg_canvas_translate(canvas, ((float)size - sw * scale) * 0.5f,
+                                     ((float)size - sh * scale) * 0.5f);
+    plutovg_canvas_scale(canvas, scale, scale);
+    plutovg_canvas_translate(canvas, -sx, -sy);
+
+    plutosvg_document_render(doc, NULL, canvas, NULL, NULL, NULL);
+    plutovg_canvas_destroy(canvas);
+    return surf;
+}
+#endif
+
 // One parse+render of a single icon at one size. Fills a sample and, when dump
 // is non-NULL, writes the pixels it produced.
 static void render_one(const svg_file *f, int size, sample *s, const char *dump)
@@ -141,14 +195,18 @@ static void render_one(const svg_file *f, int size, sample *s, const char *dump)
     memset(s, 0, sizeof(*s));
 
 #ifdef SVGBENCH_NEW
+    // -1 for the container, not the target size. The container resolves
+    // percentage lengths, so passing the target makes a document with no
+    // width/height report the target as its intrinsic size, and the fit below
+    // then becomes a no-op scale of 1. Asking for the document's own size and
+    // scaling it explicitly is what reproduces the old library's framing.
     double t0 = now_us();
     plutosvg_document_t *doc =
-        plutosvg_document_load_from_data(f->data, f->length, (float)size, (float)size, NULL, NULL);
+        plutosvg_document_load_from_data(f->data, f->length, -1.0f, -1.0f, NULL, NULL);
     double t1 = now_us();
     if(!doc) { s->total_us = t1 - t0; s->parse_us = t1 - t0; return; }
 
-    plutovg_surface_t *surf =
-        plutosvg_document_render_to_surface(doc, NULL, size, size, NULL, NULL, NULL);
+    plutovg_surface_t *surf = fit_render(doc, size);
     double t2 = now_us();
 
     s->parse_us  = t1 - t0;

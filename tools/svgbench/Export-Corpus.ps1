@@ -45,17 +45,19 @@ $defs = [ordered]@{}
 $order = @()
 
 for ($i = 0; $i -lt $starts.Count; $i++) {
-    $begin = $starts[$i].Index
+    $m     = $starts[$i]
     $end   = if ($i + 1 -lt $starts.Count) { $starts[$i + 1].Index } else { $text.Length }
-    $chunk = $text.Substring($begin, $end - $begin)
 
-    $eq = $chunk.IndexOf('=')
-    $names = $chunk.Substring(1, $eq - 1).Trim()
+    # The match runs from the @ through the opening quote, so its end is the
+    # first byte of the body. Searching for that quote instead would find the
+    # one inside a quoted alias -- @select_all, 'Выбрать все'=' -- and drag the
+    # tail of the name list into the icon.
+    $bodyStart = $m.Index + $m.Length
+    $names     = $m.Value.TrimStart('@', '$').TrimEnd("'").TrimEnd().TrimEnd('=').Trim()
 
-    $first = $chunk.IndexOf("'")
-    $last  = $chunk.LastIndexOf("'")
-    if ($last -le $first) { continue }
-    $body = $chunk.Substring($first + 1, $last - $first - 1)
+    $last = $text.LastIndexOf("'", $end - 1)
+    if ($last -lt $bodyStart) { continue }
+    $body = $text.Substring($bodyStart, $last - $bodyStart)
 
     # `@copy,copy_to_clipboard=` defines one icon under several names. Only the
     # first is needed for a corpus; the aliases are the same bytes.

@@ -1,0 +1,106 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Builds plutovg from the submodule at src/lib/plutosvg/plutovg.
+
+       The project lives here rather than inside the submodule so that a future
+       version bump is a single gitlink change with nothing to re-apply. The
+       file list is upstream's, and will need updating when upstream adds or
+       removes a source file; there is no glob because MSBuild globs are not
+       re-evaluated on checkout and a silently missing object is worse than a
+       build error. -->
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="release|x64">
+      <Configuration>release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="release|Win32">
+      <Configuration>release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="release|ARM64">
+      <Configuration>release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <ProjectGuid>{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B01}</ProjectGuid>
+    <RootNamespace>plutovg</RootNamespace>
+    <ProjectName>plutovg</ProjectName>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <SolutionDir Condition="'$(SolutionDir)'==''">$(MSBuildThisFileDirectory)..\</SolutionDir>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)'=='release'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(SolutionDir)shared\ShellArch.props" />
+    <Import Project="$(SolutionDir)shared\VC-LTL.props" Condition="Exists('$(SolutionDir)shared\VC-LTL.props')" />
+  </ImportGroup>
+
+  <PropertyGroup>
+    <PlutoVGDir>$(MSBuildThisFileDirectory)plutosvg\plutovg\</PlutoVGDir>
+    <OutDir>$(SolutionDir)bin\lib\$(Platform)\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)obj\plutovg\$(Platform)\</IntDir>
+    <TargetName>plutovg-$(ShellArchName)</TargetName>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <!-- PLUTOVG_BUILD selects the export side of the API macro; without
+           PLUTOVG_BUILD_STATIC that resolves to __declspec(dllexport) and the
+           consumer gets dllimport, which does not link against a static lib.
+           Consumers must define PLUTOVG_BUILD_STATIC too. -->
+      <PreprocessorDefinitions>PLUTOVG_BUILD;PLUTOVG_BUILD_STATIC;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(PlutoVGDir)include;$(PlutoVGDir)source;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <!-- Cdecl, unlike src/dll/Shell.vcxproj which is StdCall. Not a
+           preference: upstream hands qsort/bsearch comparators and free() to
+           its own callback typedefs, and under /Gz those typedefs become
+           __stdcall while the CRT's stay __cdecl, so x86 does not compile at
+           all. The old prebuilt lib was __stdcall (it exports
+           _plutovg_create@4), which is why Shell is; that version predates the
+           callbacks. Bridging the two conventions is PlutoVGWrap's job. -->
+      <CallingConvention>Cdecl</CallingConvention>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <ConformanceMode>true</ConformanceMode>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <!-- Third-party source: warnings are reported, not enforced. -->
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <DebugInformationFormat>None</DebugInformationFormat>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-blend.c" />
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-canvas.c" />
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-font.c" />
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-ft-math.c" />
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-ft-raster.c" />
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-ft-stroker.c" />
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-matrix.c" />
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-paint.c" />
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-path.c" />
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-rasterize.c" />
+    <ClCompile Include="$(PlutoVGDir)source\plutovg-surface.c" />
+  </ItemGroup>
+
+  <Target Name="PlutoVGSubmoduleCheck" BeforeTargets="PrepareForBuild"
+          Condition="!Exists('$(PlutoVGDir)include\plutovg.h')">
+    <Error Text="plutovg sources are missing. Run: git submodule update --init --recursive src/lib/plutosvg" />
+  </Target>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

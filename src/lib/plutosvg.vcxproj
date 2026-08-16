@@ -1,0 +1,82 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- Builds plutosvg from the submodule at src/lib/plutosvg. Upstream split
+       plutovg out into its own library, so this produces plutosvg-ARCH.lib and
+       plutovg.vcxproj produces plutovg-ARCH.lib; both must be linked, where the
+       old prebuilt plutosvg-ARCH.lib bundled the two. -->
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="release|x64">
+      <Configuration>release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="release|Win32">
+      <Configuration>release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="release|ARM64">
+      <Configuration>release</Configuration>
+      <Platform>ARM64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <ProjectGuid>{6B0F71E4-9A3C-4D62-9F4B-2C1E5A7D8B02}</ProjectGuid>
+    <RootNamespace>plutosvg</RootNamespace>
+    <ProjectName>plutosvg</ProjectName>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <PlatformToolset>v143</PlatformToolset>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+    <SolutionDir Condition="'$(SolutionDir)'==''">$(MSBuildThisFileDirectory)..\</SolutionDir>
+  </PropertyGroup>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)'=='release'" Label="Configuration">
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(SolutionDir)shared\ShellArch.props" />
+    <Import Project="$(SolutionDir)shared\VC-LTL.props" Condition="Exists('$(SolutionDir)shared\VC-LTL.props')" />
+  </ImportGroup>
+
+  <PropertyGroup>
+    <PlutoSVGDir>$(MSBuildThisFileDirectory)plutosvg\</PlutoSVGDir>
+    <OutDir>$(SolutionDir)bin\lib\$(Platform)\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)obj\plutosvg\$(Platform)\</IntDir>
+    <TargetName>plutosvg-$(ShellArchName)</TargetName>
+  </PropertyGroup>
+
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>PLUTOSVG_BUILD;PLUTOSVG_BUILD_STATIC;PLUTOVG_BUILD_STATIC;_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(PlutoSVGDir)source;$(PlutoSVGDir)plutovg\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+      <!-- Cdecl for the same reason as plutovg.vcxproj: upstream passes
+           qsort comparators and free() through its own callback typedefs. -->
+      <CallingConvention>Cdecl</CallingConvention>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <ConformanceMode>true</ConformanceMode>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WarningLevel>Level3</WarningLevel>
+      <TreatWarningAsError>false</TreatWarningAsError>
+      <DebugInformationFormat>None</DebugInformationFormat>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <ItemGroup>
+    <ClCompile Include="$(PlutoSVGDir)source\plutosvg.c" />
+  </ItemGroup>
+
+  <Target Name="PlutoSVGSubmoduleCheck" BeforeTargets="PrepareForBuild"
+          Condition="!Exists('$(PlutoSVGDir)source\plutosvg.h')">
+    <Error Text="plutosvg sources are missing. Run: git submodule update --init --recursive src/lib/plutosvg" />
+  </Target>
+
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

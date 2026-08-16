@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <!-- MSBuild calls the 32-bit platform Win32; the library filenames, the
+       #pragma comment(lib) lines in dll/src/Main.cpp and exe/src/Main.cpp, and
+       the release artefacts all call it x86. One mapping, so the two spellings
+       cannot drift apart. -->
+  <PropertyGroup>
+    <ShellArchName Condition="'$(Platform)'=='Win32'">x86</ShellArchName>
+    <ShellArchName Condition="'$(Platform)'=='x64'">x64</ShellArchName>
+    <ShellArchName Condition="'$(Platform)'=='ARM64'">arm64</ShellArchName>
+  </PropertyGroup>
+
+  <Target Name="ShellArchCheck" BeforeTargets="PrepareForBuild" Condition="'$(ShellArchName)'==''">
+    <Error Text="ShellArch.props has no name for platform '$(Platform)'. Add one before building for it." />
+  </Target>
+</Project>
