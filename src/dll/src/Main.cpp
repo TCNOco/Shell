@@ -1242,13 +1242,35 @@ STDAPI DllGetClassObject(_In_ REFCLSID rclsid, [[maybe_unused]] _In_ REFIID riid
 __control_entrypoint(DllExport)
 STDAPI DllCanUnloadNow(void)
 {
-	// Any object we handed out pins the DLL, and that test has to come first.
-	// This used to answer from _loader.explorer alone, returning S_OK - "nothing
-	// of mine is alive, unload me" - in every host that was not explorer.exe.
-	// That was true only while DllGetClassObject handed out nothing. Now that it
-	// returns a real class factory, answering S_OK with a live IContextMenu
-	// outstanding would let COM unload shell.dll out from under the host that is
-	// still holding it.
+	// Never while the import tables are still patched, and this test comes first
+	// because it is the one that crashes machines.
+	//
+	// The IAT hooks are written into OTHER modules' import tables, and nothing
+	// removes them when the product is unregistered. Unloading while they are
+	// installed leaves those entries pointing into freed memory, and the next
+	// menu jumps there. Observed, not theorised: with a running Explorer holding
+	// the DLL, unregistering made is_registered() false, the check below then
+	// answered S_OK, COM unloaded us, and explorer.exe faulted at 0xc0000005 in
+	// "shell.dll_unloaded" every thirty seconds - it could not open a window,
+	// because every attempt went through a hooked entry point. This is a strong
+	// candidate for the upstream reports of Explorer restart loops.
+	//
+	// Once hooked, this DLL stays for the life of the process. Unloading is only
+	// safe if the hooks are removed first, and the teardown to do that does not
+	// exist yet.
+	if(iathook_NtUserTrackPopupMenuEx.installed())
+		return S_FALSE;
+
+	for(const auto &h : iathook_TrackPopupMenu)
+	{
+		if(h.installed())
+			return S_FALSE;
+	}
+
+	// Anything we handed out also pins us. DllGetClassObject used to return
+	// E_NOTIMPL and never produced an object; now that it returns a real class
+	// factory, answering S_OK with a live IContextMenu outstanding would let COM
+	// unload the DLL out from under the host still holding it.
 	if(com_object_count.load(std::memory_order_relaxed) > 0)
 		return S_FALSE;
 
