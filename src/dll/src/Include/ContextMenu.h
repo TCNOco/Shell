@@ -789,6 +789,9 @@ plutovg_move_to(pluto, start.x, start.y);
 					auto ctx = new ContextMenu(hWnd, hMenu, pt);
 					ctx->Selected.loader.explorer = explorer;
 					ctx->Selected.loader.contextmenuhandler = contextmenuhandler;
+					// Lets QuerySelected match a selection the host already handed us
+					// through IShellExtInit against the menu it is about to show.
+					ctx->Selected.hmenu_original = hMenu;
 					if(ctx->Initialize())
 						return ctx;
 					delete ctx;

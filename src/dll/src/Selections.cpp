@@ -1,4 +1,5 @@
 #include <pch.h>
+#include "Include\ShellExt.h"
 
 //Enable Narrow Classic Context Menu on Windows 10
 // HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\FlightedFeatures\ImmersiveContextMenu:0
@@ -898,6 +899,64 @@ namespace Nilesoft
 			return result;
 		}
 
+		// The selection a host gave us through IShellExtInit::Initialize, matched
+		// against the menu it gave IContextMenu::QueryContextMenu. Deliberately a
+		// mirror of the IShellBrowser path in QuerySelected below - same
+		// GetFileProperties for the folder, same GetItemAt/Parse loop over the
+		// items - because the whole point is that both routes hand the rest of the
+		// program the same thing.
+		//
+		// Window.id is left exactly as QueryShellWindow classified it. Supplying a
+		// selection is not grounds for reclassifying the window, and guessing at a
+		// class for a host we know nothing about is how this would break Explorer.
+		bool Selections::QuerySelectedFromHandler()
+		{
+			auto sia = ShellExtCapture::match(hmenu_original);
+			auto folder_pidl = ShellExtCapture::folder;
+			auto background = ShellExtCapture::background;
+
+			if(!sia && !folder_pidl)
+				return false;
+
+			// The folder first: it supplies Parent for the items, and on a
+			// background click it is the only thing the host offered.
+			if(folder_pidl)
+			{
+				IComPtr<IShellItem2> si;
+				if(S_OK == ::SHCreateItemFromIDList(folder_pidl, IID_IShellItem2, si))
+				{
+					FileProperties folderProp;
+					Selections::GetFileProperties(si, &folderProp);
+					Parent = folderProp.Path;
+					ParentRaw = folderProp.PathRaw;
+				}
+			}
+
+			if(sia)
+			{
+				DWORD count = 0;
+				if(S_OK == sia->GetCount(&count) && count > 0)
+				{
+					Items.reserve(count);
+
+					for(DWORD i = 0; i < count; i++)
+					{
+						IComPtr<IShellItem> item;
+						if(S_OK == sia->GetItemAt(i, item) && item)
+							Parse(item);
+					}
+				}
+			}
+
+			// Nothing usable came of it - say so, and let the IShellBrowser path
+			// run rather than reporting an empty selection as a successful query.
+			if(Items.empty() && !background)
+				return false;
+
+			Background = background;
+			return true;
+		}
+
 		bool Selections::QuerySelected()
 		{
 			try
@@ -978,9 +1037,21 @@ namespace Nilesoft
 				*/
 
 				HWND current_window{};
-				
+
+				// No IShellBrowser used to end the query here, and that is exactly why
+				// third-party file managers only ever got theming: they implement
+				// their own view and answer nothing to WM_GETISHELLBROWSER, so the
+				// menu was built with no selection at all. Such a host has usually
+				// already handed us the selection through IShellExtInit, so ask for
+				// that before giving up.
+				//
+				// Placed after this gate rather than before it so Explorer is not
+				// touched. Explorer always has an IShellBrowser and never reaches
+				// here, which keeps its richer handling below - the DropTarget and
+				// Home/Quick access/Libraries cases - exactly as it was. Taking the
+				// handler's selection first would have quietly bypassed all of it.
 				if(!Window.has_IShellBrowser)
-					return false;
+					return QuerySelectedFromHandler();
 
 				if(Window.desktop)
 				{
