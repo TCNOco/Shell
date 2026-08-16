@@ -194,13 +194,34 @@ namespace Nilesoft
 				ret += Registry::DeleteSubKey(HKCR, L"CLSID\\" CLS_ContextMenu);
 				ret += RegisterContextMenuHandler(false);
 
-				/*if(Windows::Version::Instance().IsWindows11OrGreater())
+				// The Windows 11 modern menu reaches us through a TreatAs redirect on
+				// {86ca1aa0-...}. Deleting our CLSID above without clearing it strands
+				// the redirect on a class that no longer resolves, so the user
+				// uninstalls and is left on the classic menu with nothing to explain
+				// it. This used to be handled only by shell.exe -unregister -treat, so
+				// a bare -unregister left the machine modified.
+				//
+				// Only removed when it actually names our server: upstream Nilesoft
+				// Shell writes the same value with its own CLSID, and the separate
+				// CLSIDs exist so the two can coexist. The key is closed before the
+				// delete rather than deleted through a live handle.
 				{
 					string key_treatas;
-					key_treatas.format(L"CLSID\\%s\\TreatAs", string::ToString(IID_FileExplorerContextMenu, 2).c_str());
-					Registry::DeleteSubKey(HKCR, key_treatas);
+					key_treatas.format(L"CLSID\\%s\\TreatAs",
+									   string::ToString(IID_FileExplorerContextMenu, 2).c_str());
+
+					bool ours = false;
+					if(auto key = Registry::ClassesRoot.OpenSubKey(key_treatas, true, false); key)
+					{
+						string treatas;
+						if(key.ReadString(nullptr, treatas))
+							ours = treatas.equals(CLS_ContextMenu);
+					}
+
+					if(ours)
+						Registry::DeleteSubKey(HKCR, key_treatas);
 				}
-				*/
+
 				Registry::DeleteSubKey(HKCR, L".nss");
 
 				return ret > 0;// == 5;

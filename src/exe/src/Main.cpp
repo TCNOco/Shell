@@ -336,9 +336,10 @@ bool Registration(REGOP reg)
 					return false;
 				}
 
-				// is windows 11 or later
-				if(ver->IsWindows11OrGreater() && reg.TREAT)
-					disable_modern(false);
+				// RegistryConfig::Unregister() now clears the TreatAs redirect itself,
+				// and only when it names our CLSID. Doing it here as well meant it
+				// happened only with -treat on the command line, and deleted the key
+				// without checking whose it was.
 
 				msg = string::Extract(IDS_UNREGISTER_SUCCESS).move();
 			}

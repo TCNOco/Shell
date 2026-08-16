@@ -209,30 +209,51 @@ static std::wstring JoinPath(const std::wstring &path1, const std::wstring &path
 		if(path2.size() > 0 && path2.front() != L'\\')
 			path += L'\\';
 	}
-	return std::move(path1 + path2);
+	// path, not path1: the separator was appended to the local copy and then
+	// thrown away. It only ever worked because both callers pass a folder that
+	// already ends in a backslash.
+	return path + path2;
 }
 
 static bool InstallFolder(MSIHANDLE hInstall, std::wstring& install_folder, bool find_by_reg)
 {
 	MSI msi(hInstall);
-	DWORD length = MAX_PATH;
 	install_folder = msi.InstallFolder();
 	if(install_folder.size() == 0)
 	{
 		if(find_by_reg)
 		{
 			install_folder.resize(MAX_PATH);
+
+			// This must stay in step with CLS_ContextMenu in src/shared/Globals.h.
+			// Globals.h cannot be included here - it uses std::set and std::string
+			// without including either header. It used to name upstream's
+			// {BAE3934B-...F1}, so with both products installed side by side -
+			// which the fork's separate CLSIDs deliberately allow - uninstalling
+			// this one resolved upstream's directory and ran upstream's shell.exe
+			// to unregister, taking out the wrong product.
+			// pcbData is a byte count, not a character count.
+			DWORD length = static_cast<DWORD>(install_folder.size() * sizeof(wchar_t));
 			auto rc = ::RegGetValueW(HKEY_CLASSES_ROOT,
-									 L"CLSID\\{BAE3934B-8A6A-4BFB-81BD-3FC599A1BAF1}\\InprocServer32",
-									 nullptr, RRF_RT_REG_SZ | KEY_WOW64_64KEY, nullptr, static_cast<void *>(install_folder.data()), &length);
-			if(rc == ERROR_SUCCESS)
+									 L"CLSID\\{87F09619-81FA-4474-B28D-01DDBB2284F1}\\InprocServer32",
+									 nullptr, RRF_RT_REG_SZ, nullptr,
+									 static_cast<void *>(install_folder.data()), &length);
+			if(rc == ERROR_SUCCESS && length >= sizeof(wchar_t))
 			{
-				install_folder.resize(length / sizeof(wchar_t));
+				// The reported size includes the terminating null, which must not
+				// stay inside the string.
+				install_folder.resize(length / sizeof(wchar_t) - 1);
 				auto p = install_folder.find_last_of(L"\\");
 				if(p != install_folder.npos)
-				{
-					install_folder = std::move(install_folder.substr(0, p + 1));
-				}
+					install_folder = install_folder.substr(0, p + 1);
+				else
+					install_folder.clear();
+			}
+			else
+			{
+				// Without this the failed read leaves MAX_PATH nulls behind and the
+				// size check below reports success.
+				install_folder.clear();
 			}
 		}
 	}
