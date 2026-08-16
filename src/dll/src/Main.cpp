@@ -1028,6 +1028,29 @@ BOOL APIENTRY DllMain(HINSTANCE hInstance, DWORD dwReason, LPVOID)
 
 				ContextMenu::RegisterLayer();
 
+				// Pin the module before patching anything. Once an import table
+				// points at code in this DLL, the DLL can never be unloaded: the
+				// patch lives in somebody else's module and nothing takes it back
+				// out, so the next call through it jumps into freed memory.
+				//
+				// Refusing in DllCanUnloadNow is not enough, and assuming it was
+				// cost a working machine. COM honours that answer, but Explorer's
+				// shell-extension host caches handler DLLs and calls FreeLibrary on
+				// them directly when it decides they have gone idle - it never asks.
+				// Explorer duly unloaded us a few minutes after each start, and the
+				// next menu call faulted at 0xc0000005 inside "shell.dll_unloaded",
+				// on Explorer's own cache timer, which is why the crashes arrived
+				// exactly thirty-one seconds apart.
+				//
+				// GET_MODULE_HANDLE_EX_FLAG_PIN makes the reference count permanent,
+				// so FreeLibrary cannot unload us from any caller. This is the
+				// standard treatment for a DLL that patches import tables, and it
+				// belongs here rather than at any of the individual unload paths,
+				// because it is the only one that covers all of them.
+				HMODULE pinned{};
+				::GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_PIN | GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+									 reinterpret_cast<LPCWSTR>(&TrackPopupMenuExProc), &pinned);
+
 				iathook_NtUserTrackPopupMenuEx
 					.init(L"user32.dll", "win32u.dll", "NtUserTrackPopupMenuEx", TrackPopupMenuExProc)
 					.install();

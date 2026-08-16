@@ -134,7 +134,9 @@ jobs:
           call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat" || call "%ProgramFiles%\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat"
           cl /nologo /O2 /W3 tools\loadcheck\loadcheck.c ole32.lib /Fe:src\bin\loadcheck.exe || exit /b 1
           src\bin\loadcheck.exe src\bin\shell.dll || exit /b 1
-          del src\bin\loadcheck.exe src\bin\loadcheck.obj 2>nul
+          cl /nologo /O2 /W3 tools\loadcheck\pincheck.c /Fe:src\bin\pincheck.exe || exit /b 1
+          src\bin\pincheck.exe src\bin\shell.dll || exit /b 1
+          del src\bin\loadcheck.exe src\bin\loadcheck.obj src\bin\pincheck.exe src\bin\pincheck.obj 2>nul
           exit /b 0
 
       - name: Checksums
