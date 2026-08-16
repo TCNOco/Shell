@@ -1,5 +1,6 @@
 ﻿#include <pch.h>
 #include "Include/ContextMenu.h"
+#include "Include/ShellExt.h"
 #include "Library/detours.h"
 #include "RegistryConfig.h"
 #include <UIAutomation.h>
@@ -1207,6 +1208,21 @@ STDAPI DllGetClassObject(_In_ REFCLSID rclsid, [[maybe_unused]] _In_ REFIID riid
 	}
 	_log.close();
 
+	// Hand out a real class factory for the context-menu CLSID. Until now this
+	// returned E_NOTIMPL on every path and the registration existed only to get
+	// the DLL loaded, which meant every host that is not Explorer lost its
+	// selection: Selections::QuerySelected reaches it through IShellBrowser, and
+	// a third-party file manager does not provide one. The host was already
+	// offering us the selection through IShellExtInit and we were declining it.
+	//
+	// The object inserts no items, so Explorer's menu is unchanged - the hook
+	// still does all the work there. See Include\ShellExt.h.
+	//
+	// Constructed out of line: this function wraps its body in __try, and MSVC
+	// rejects __try in a function that also needs object unwinding (C2712).
+	if(hr == E_NOTIMPL && rclsid == IID_ContextMenu && ppv)
+		hr = CreateShellExtFactory(riid, ppv);
+
 	return hr;
 }
 
@@ -1219,6 +1235,16 @@ STDAPI DllGetClassObject(_In_ REFCLSID rclsid, [[maybe_unused]] _In_ REFIID riid
 __control_entrypoint(DllExport)
 STDAPI DllCanUnloadNow(void)
 {
+	// Any object we handed out pins the DLL, and that test has to come first.
+	// This used to answer from _loader.explorer alone, returning S_OK - "nothing
+	// of mine is alive, unload me" - in every host that was not explorer.exe.
+	// That was true only while DllGetClassObject handed out nothing. Now that it
+	// returns a real class factory, answering S_OK with a live IContextMenu
+	// outstanding would let COM unload shell.dll out from under the host that is
+	// still holding it.
+	if(com_object_count.load(std::memory_order_relaxed) > 0)
+		return S_FALSE;
+
 	if(!_loader.explorer || !is_registered())
 		return S_OK;
 	return S_FALSE;
