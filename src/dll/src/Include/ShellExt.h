@@ -59,12 +59,31 @@ namespace Nilesoft
 		// nothing to evict on a path that has to stay cheap.
 		struct ShellExtCapture
 		{
-			inline static HMENU hmenu{};
-			inline static IShellItemArray *items{};
-			inline static PIDLIST_ABSOLUTE folder{};
-			inline static bool background{};
-			inline static uint32_t thread{};
-			inline static uint32_t tick{};
+			// What a caller gets back. All three fields travel together or not at
+			// all: an earlier version validated only the items and let the folder
+			// and the background flag through raw, so a capture from one menu was
+			// still being applied to the next one.
+			struct view
+			{
+				IShellItemArray *items{};
+				PCIDLIST_ABSOLUTE folder{};
+				bool background{};
+
+				explicit operator bool() const { return items != nullptr || folder != nullptr; }
+			};
+
+			// thread_local, not merely thread-checked. These used to be process-wide
+			// with a stored thread id compared in match(): the check was per-thread
+			// but the storage was not, so one thread's capture() could Release an
+			// array another thread was about to read. Explorer runs several UI
+			// threads. Initialize, QueryContextMenu and the TrackPopupMenu hook for
+			// one menu all run on the same thread, which is exactly what makes
+			// per-thread storage the right shape rather than a lock.
+			inline static thread_local HMENU hmenu{};
+			inline static thread_local IShellItemArray *items{};
+			inline static thread_local PIDLIST_ABSOLUTE folder{};
+			inline static thread_local bool background{};
+			inline static thread_local uint32_t tick{};
 
 			static void clear()
 			{
@@ -80,7 +99,6 @@ namespace Nilesoft
 				}
 				hmenu = nullptr;
 				background = false;
-				thread = 0;
 				tick = 0;
 			}
 
@@ -93,7 +111,6 @@ namespace Nilesoft
 					items = sia;
 				}
 				background = is_background;
-				thread = ::GetCurrentThreadId();
 				tick = ::GetTickCount();
 			}
 
@@ -112,27 +129,27 @@ namespace Nilesoft
 
 			static void bind(HMENU h) { hmenu = h; }
 
-			// Matched on the menu handle, the calling thread and a short age.
+			// All-or-nothing, matched on the menu handle and a short age. A capture
+			// that does not belong to the menu being built must contribute nothing:
+			// not its items, not its folder, and not its background flag.
 			//
-			// The thread check is not defensive padding: the pointer is not
-			// marshalled, and this DLL has no global interface table and makes no
-			// apartment guarantee - ensure_com asks for STA but tolerates the
-			// host's MTA. For a real context menu, Initialize, QueryContextMenu and
-			// TrackPopupMenu all run on the host's UI thread, so this only refuses
-			// the case that could not have been handled correctly anyway.
+			// Getting this wrong was a real regression rather than a theoretical
+			// one. When only the items were gated, a background right-click in
+			// Explorer left folder and background set, and the very next address
+			// bar, inline-rename, title-bar or Win+X menu - none of which have an
+			// IShellBrowser, so all of which reach this code - was built as a
+			// background click in whatever folder had last been clicked in.
 			//
 			// The age bound covers a host that asks for a handler and then never
-			// shows the menu, which would otherwise leave the last selection to be
-			// picked up by an unrelated menu much later.
-			static IShellItemArray *match(HMENU h)
+			// shows a menu. Unsigned arithmetic, so GetTickCount wrapping at 49
+			// days subtracts correctly.
+			static view match(HMENU h)
 			{
-				if(!items || !h || h != hmenu)
-					return nullptr;
-				if(thread != ::GetCurrentThreadId())
-					return nullptr;
+				if(!h || h != hmenu)
+					return {};
 				if((::GetTickCount() - tick) > 30000)
-					return nullptr;
-				return items;
+					return {};
+				return { items, folder, background };
 			}
 		};
 

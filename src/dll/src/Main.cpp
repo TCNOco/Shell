@@ -683,6 +683,13 @@ BOOL WINAPI NtUserTrackPopupMenu(HMENU hMenu, uint32_t uFlags, int x, int y, HWN
 	{
 		invoke(hMenu, uFlags, { x, y });
 		_loader.contextmenuhandler = false;
+		// Bounds the captured selection to the menu that used it. Without this it
+		// survived until the next IShellExtInit::Initialize, which for menus the
+		// host does not route through a shell handler is never - so the last
+		// right-click's folder stayed live and was applied to later, unrelated
+		// menus. It also stops one IShellItemArray and one PIDL being held for as
+		// long as the process lives.
+		ShellExtCapture::clear();
 		is_in_taskbar = false;
 		return result;
 	}

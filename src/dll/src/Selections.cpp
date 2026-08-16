@@ -911,49 +911,76 @@ namespace Nilesoft
 		// class for a host we know nothing about is how this would break Explorer.
 		bool Selections::QuerySelectedFromHandler()
 		{
-			auto sia = ShellExtCapture::match(hmenu_original);
-			auto folder_pidl = ShellExtCapture::folder;
-			auto background = ShellExtCapture::background;
-
-			if(!sia && !folder_pidl)
+			// One guarded read. Every field has to come from the same validated
+			// capture, or a stale one bleeds into the next menu - see match().
+			auto captured = ShellExtCapture::match(hmenu_original);
+			if(!captured)
 				return false;
 
-			// The folder first: it supplies Parent for the items, and on a
-			// background click it is the only thing the host offered.
-			if(folder_pidl)
-			{
-				IComPtr<IShellItem2> si;
-				if(S_OK == ::SHCreateItemFromIDList(folder_pidl, IID_IShellItem2, si))
-				{
-					FileProperties folderProp;
-					Selections::GetFileProperties(si, &folderProp);
-					Parent = folderProp.Path;
-					ParentRaw = folderProp.PathRaw;
-				}
-			}
+			IComPtr<IShellItem2> si;
+			FileProperties folderProp;
+			auto have_folder = captured.folder
+				&& S_OK == ::SHCreateItemFromIDList(captured.folder, IID_IShellItem2, si)
+				&& Selections::GetFileProperties(si, &folderProp);
 
-			if(sia)
+			if(captured.items)
 			{
 				DWORD count = 0;
-				if(S_OK == sia->GetCount(&count) && count > 0)
+				if(S_OK == captured.items->GetCount(&count) && count > 0)
 				{
 					Items.reserve(count);
 
 					for(DWORD i = 0; i < count; i++)
 					{
 						IComPtr<IShellItem> item;
-						if(S_OK == sia->GetItemAt(i, item) && item)
+						if(S_OK == captured.items->GetItemAt(i, item) && item)
 							Parse(item);
 					}
 				}
 			}
 
-			// Nothing usable came of it - say so, and let the IShellBrowser path
-			// run rather than reporting an empty selection as a successful query.
-			if(Items.empty() && !background)
+			if(!Items.empty())
+			{
+				// Selection: the containing folder is the parent, as in the
+				// IShellBrowser path.
+				if(have_folder)
+				{
+					Parent = folderProp.Path;
+					ParentRaw = folderProp.PathRaw;
+				}
+				return true;
+			}
+
+			// Background click. Mirrors what the IShellBrowser path does for the
+			// same case: the folder itself becomes the item, and the parent is the
+			// folder's parent - not the folder. Setting Background without parsing
+			// the folder would leave Types[] and count.* empty, which is worse than
+			// not answering at all, because every type test then reads as false on
+			// a menu that claims to be a background click.
+			if(!have_folder || !captured.background)
 				return false;
 
-			Background = background;
+			if(folderProp.FileSystem || folderProp.FileSysAnceStor)
+				folderProp.Background = TRUE;
+			else
+				folderProp.Background = folderProp.DropTarget;
+
+			if(!folderProp.Background)
+				return false;
+
+			IComPtr<IShellItem> parent;
+			if(S_OK == si->GetParent(parent))
+			{
+				FileProperties fp_parent;
+				if(Selections::GetFileProperties(parent, &fp_parent))
+				{
+					Parent = fp_parent.Path.move();
+					ParentRaw = fp_parent.PathRaw.move();
+				}
+			}
+
+			Background = true;
+			Parse(&folderProp);
 			return true;
 		}
 

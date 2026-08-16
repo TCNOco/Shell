@@ -116,14 +116,57 @@ TEST(shellext, an_empty_capture_is_never_reported_as_a_match)
 	ShellExtCapture::bind(menu);
 
 	// Nothing was captured, so there is nothing to hand back even for the menu
-	// it was bound to. The hook must fall through to its existing behaviour.
-	CHECK(ShellExtCapture::match(menu) == nullptr);
-	CHECK(ShellExtCapture::match(other) == nullptr);
-	CHECK(ShellExtCapture::match(nullptr) == nullptr);
+	// it was bound to. The caller must fall through to its existing behaviour.
+	CHECK(!static_cast<bool>(ShellExtCapture::match(menu)));
+	CHECK(!static_cast<bool>(ShellExtCapture::match(other)));
+	CHECK(!static_cast<bool>(ShellExtCapture::match(nullptr)));
 
 	::DestroyMenu(menu);
 	::DestroyMenu(other);
 	ShellExtCapture::clear();
+}
+
+// The regression this exists to prevent: an earlier version validated only the
+// items against the menu handle and let the folder and the background flag
+// through raw. A background right-click in Explorer therefore left both set,
+// and the next address-bar, inline-rename, title-bar or Win+X menu - none of
+// which have an IShellBrowser, so all of which reach this path - was built as a
+// background click in whatever folder had last been clicked in.
+TEST(shellext, a_capture_belongs_to_one_menu_and_contributes_nothing_to_others)
+{
+	ShellExtCapture::clear();
+	auto mine = ::CreatePopupMenu();
+	auto other = ::CreatePopupMenu();
+
+	PIDLIST_ABSOLUTE desktop = nullptr;
+	if(SUCCEEDED(::SHGetKnownFolderIDList(FOLDERID_Desktop, 0, nullptr, &desktop)))
+	{
+		ShellExtCapture::capture(nullptr, true);      // a background click
+		ShellExtCapture::capture_folder(desktop);
+		ShellExtCapture::bind(mine);
+
+		auto ok = ShellExtCapture::match(mine);
+		CHECK(static_cast<bool>(ok));
+		CHECK(ok.folder != nullptr);
+		CHECK(ok.background == true);
+
+		// Every field, not just the items.
+		auto no = ShellExtCapture::match(other);
+		CHECK(!static_cast<bool>(no));
+		CHECK(no.items == nullptr);
+		CHECK(no.folder == nullptr);
+		CHECK(no.background == false);
+
+		auto none = ShellExtCapture::match(nullptr);
+		CHECK(none.folder == nullptr);
+		CHECK(none.background == false);
+
+		::CoTaskMemFree(desktop);
+	}
+
+	ShellExtCapture::clear();
+	::DestroyMenu(mine);
+	::DestroyMenu(other);
 }
 
 TEST(shellext, the_folder_id_list_is_cloned_and_released)
