@@ -34,13 +34,14 @@ jobs:
         platform: [x64, x86, arm64]
 
     steps:
-      # No submodules. src/lib/detours and src/lib/plutosvg are registered in
-      # .gitmodules but no project builds them: the DLL links the prebuilt
-      # detours-*.lib and plutosvg-*.lib committed under src/shared/Library, and
-      # nothing in any vcxproj, wixproj, props or targets file references either
-      # submodule or the vendored copies under src/3rdparty. Cloning them was
-      # ~4.5 MB of Detours samples per job, on every platform.
+      # Submodules are needed again. They were skipped because nothing built
+      # them - the DLL linked the prebuilt plutosvg-*.lib and detours-*.lib
+      # committed under src/shared/Library - but src/lib/plutovg.vcxproj and
+      # src/lib/plutosvg.vcxproj now compile that source, and plutovg is a
+      # submodule nested inside plutosvg, so the checkout has to be recursive.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
