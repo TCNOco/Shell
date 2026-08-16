@@ -5884,20 +5884,34 @@ namespace Nilesoft
 
 			if(key_up)
 			{
-				if(wParam == VK_SNAPSHOT)
+				// Home as well as PrintScreen, because plenty of keyboards - compact
+				// and laptop layouts especially - have no PrintScreen key at all, and
+				// this is the only way to capture what the menu actually painted.
+				// Home normally moves the selection to the first item, so it is only
+				// taken over when the screenshot setting is on, which is off by
+				// default and is what gates the capture anyway.
+				if(wParam == VK_SNAPSHOT || wParam == VK_HOME)
 				{
-					::EnumThreadWindows(::GetCurrentThreadId(), [](HWND hWnd, LPARAM)->BOOL
+					// The key is passed through so the Home case can be rejected once
+					// the instance is in hand: this is a static hook proc and the
+					// setting lives on the ContextMenu.
+					::EnumThreadWindows(::GetCurrentThreadId(), [](HWND hWnd, LPARAM key)->BOOL
 					{
 						if(auto ctx = ContextMenu::Prop::Get(hWnd); ctx)
 						{
 							if(Window::IsPopupMenu(hWnd))
 							{
+								// Home keeps its normal meaning - move to the first
+								// item - unless a screenshot directory is configured.
+								if(key == VK_HOME && ctx->_screenshot.empty())
+									return FALSE;
+
 								ctx->screenshot();
 								return FALSE;
 							}
 						}
 						return TRUE;
-					}, 0);
+					}, static_cast<LPARAM>(wParam));
 				}
 			}
 
