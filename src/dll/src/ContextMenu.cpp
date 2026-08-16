@@ -4164,6 +4164,22 @@ namespace Nilesoft
 
 				_tip.destroy();
 
+				// A menu we populated but were never asked to paint. USER32 sends
+				// WM_MEASUREITEM and WM_DRAWITEM to the menu's OWNER window, so if the
+				// host's owner window does not deliver them, every row comes out blank
+				// and unhoverable while the window background - which we paint
+				// ourselves, from the menu window - still appears. That is
+				// indistinguishable by eye from a theme or harvest problem, and it is
+				// not visible anywhere else, so it is worth one line when it happens.
+				if(_n_drawitem == 0 && !_items.empty())
+				{
+					Logger::Warning(L"menu built with %zu items but no WM_DRAWITEM arrived "
+									L"(measureitem=%u); owner hwnd %p class '%s' - the owner "
+									L"window is not delivering owner-draw messages",
+									_items.size(), _n_measureitem, hwnd.owner,
+									Window::class_name(hwnd.owner).c_str());
+				}
+
 				delete __system_menu_tree;
 
 				// After the tree, and after every reader of __map_system_menu has
@@ -5968,20 +5984,24 @@ namespace Nilesoft
 					}
 					case WM_MEASUREITEM:
 					{
-						//_log.info(L"WM_MEASUREITEM %x", wParam);
 						auto mi = reinterpret_cast<MEASUREITEMSTRUCT *>(lParam);
 						//Only process if this notification is actually for a menu.
 						if(mi->CtlType == ODT_MENU/* && wParam == 0*/)
+						{
+							ctx->_n_measureitem++;
 							return ctx->OnMeasureItem(mi);
+						}
 						break;
 					}
 					case WM_DRAWITEM:
 					{
-						//_log.info(L"WM_DRAWITEM");
 						auto di = reinterpret_cast<DRAWITEMSTRUCT *>(lParam);
 						//Only process if this notification is actually for a menu.
 						if(di->CtlType == ODT_MENU/* && wParam == 0*/)
+						{
+							ctx->_n_drawitem++;
 							return ctx->OnDrawItem(di);
+						}
 						break;
 					}
 					case WM_MENUSELECT:

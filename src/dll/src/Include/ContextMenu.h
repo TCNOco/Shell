@@ -694,6 +694,15 @@ plutovg_move_to(pluto, start.x, start.y);
 			// write through a dangling pointer.
 			std::vector<menuitem_t *> __replaced_system_items;
 
+			// Owner-draw traffic actually received, so "the menu is drawn but empty"
+			// can be told apart from "the menu was never asked to be drawn". USER32
+			// sends WM_MEASUREITEM and WM_DRAWITEM to the menu's OWNER window, which
+			// is the window WindowSubclassProc is attached to - not the popup - so a
+			// host whose owner window does not deliver them produces a correctly
+			// sized, correctly populated, completely unpainted menu.
+			uint32_t _n_measureitem{};
+			uint32_t _n_drawitem{};
+
 		public:// functions
 
 			bool set_prop(auto hWnd) { return Prop::Set(hWnd, this); }
