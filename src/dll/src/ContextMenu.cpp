@@ -1572,6 +1572,31 @@ namespace Nilesoft
 		}
 
 
+		// Every menu window on this thread, with whether it is shown. The window we
+		// paint has WS_VISIBLE clear, while a read-back of the live popup found our
+		// items in a window that was visible - so there is more than one, and
+		// _level.front() is not the one on screen.
+		struct PopupScan
+		{
+			wchar_t buf[256]{};
+			int len{};
+		};
+
+		static BOOL CALLBACK scan_popups(HWND h, LPARAM lp)
+		{
+			auto ps = reinterpret_cast<PopupScan *>(lp);
+			wchar_t cls[32]{};
+			if(::GetClassNameW(h, cls, 32) && 0 == ::wcscmp(cls, L"#32768") && ps->len < 200)
+			{
+				RECT r{};
+				::GetWindowRect(h, &r);
+				ps->len += ::swprintf(ps->buf + ps->len, 256 - ps->len, L" %p:v%d(%d,%d %dx%d)",
+									  h, ::IsWindowVisible(h) ? 1 : 0, r.left, r.top,
+									  r.right - r.left, r.bottom - r.top);
+			}
+			return TRUE;
+		}
+
 		// How much of a just-drawn row actually landed, counted in the DC we were
 		// handed and again in the popup's own window DC. Colour and alpha are
 		// counted apart: the popup is composited as glass, where a pixel with no
@@ -4298,7 +4323,7 @@ namespace Nilesoft
 									L"px_item=%u/a%u px_wnd=%u/a%u blt=%u bpinit=%d "
 									L"dctype=%u clip=%d(%d,%d)-(%d,%d) "
 									L"vis=%d wstyle=%08X rgn=%d(%d,%d)-(%d,%d) "
-									L"tracked=%p dcwnd=%p dcvis=%d | "
+									L"tracked=%p dcwnd=%p dcvis=%d popups[%s ] | "
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
@@ -4315,7 +4340,7 @@ namespace Nilesoft
 									_dbg_clip.left, _dbg_clip.top, _dbg_clip.right, _dbg_clip.bottom,
 									_dbg_vis, _dbg_style, _dbg_rgn,
 									_dbg_rgnbox.left, _dbg_rgnbox.top, _dbg_rgnbox.right, _dbg_rgnbox.bottom,
-									_dbg_tracked, _dbg_dcwnd, _dbg_dcwnd_vis,
+									_dbg_tracked, _dbg_dcwnd, _dbg_dcwnd_vis, _dbg_popups,
 									_dbg_theme, static_cast<uint32_t>(_dbg_text_hr),
 									_n_drawstring, _n_drawstring_skipped, _n_drawimage,
 									_dbg_buffered ? 1 : 0,
@@ -6240,6 +6265,11 @@ namespace Nilesoft
 								// is fully interactive while that window is never shown
 								// is a reason to check the assumption rather than keep
 								// building on it.
+								PopupScan ps;
+								::EnumThreadWindows(::GetCurrentThreadId(), scan_popups,
+													reinterpret_cast<LPARAM>(&ps));
+								::wcscpy_s(ctx->_dbg_popups, ps.buf);
+
 								ctx->_dbg_dcwnd = ::WindowFromDC(di->hDC);
 								ctx->_dbg_dcwnd_vis = ctx->_dbg_dcwnd
 									? (::IsWindowVisible(ctx->_dbg_dcwnd) ? 1 : 0) : -1;

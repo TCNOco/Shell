@@ -755,6 +755,7 @@ plutovg_move_to(pluto, start.x, start.y);
 			uint32_t _dbg_dctype{};
 			RECT _dbg_clip{};
 			int _dbg_clipres{};
+			wchar_t _dbg_popups[256]{};
 			HWND _dbg_tracked{};
 			HWND _dbg_dcwnd{};
 			int _dbg_dcwnd_vis{ -1 };
