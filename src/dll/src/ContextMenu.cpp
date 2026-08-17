@@ -1579,7 +1579,7 @@ namespace Nilesoft
 		// colour and still be invisible.
 		static void sample_row(HDC hdc_item, HDC hdc_wnd, const RECT &rc,
 							   uint32_t &rgb_item, uint32_t &rgb_wnd,
-							   uint32_t &a_item, uint32_t &a_wnd)
+							   uint32_t &a_item, uint32_t &a_wnd, uint32_t &blt)
 		{
 			const long w = rc.right - rc.left, h = rc.bottom - rc.top;
 			if(w <= 0 || h <= 0)
@@ -1593,6 +1593,9 @@ namespace Nilesoft
 			bi.bmiHeader.biBitCount = 32;
 			bi.bmiHeader.biCompression = BI_RGB;
 
+			// A read that fails and a row that is genuinely empty both count zero,
+			// so record that the blit worked. Without it a broken read-back looks
+			// exactly like proof that nothing was drawn.
 			auto count = [&](HDC src, uint32_t &rgb, uint32_t &alpha)
 			{
 				if(!src)
@@ -1612,6 +1615,7 @@ namespace Nilesoft
 							if(p[i] & 0x00FFFFFF) rgb++;
 							if(p[i] & 0xFF000000) alpha++;
 						}
+						blt++;
 					}
 					::SelectObject(mem, old);
 					::DeleteObject(bmp);
@@ -4033,6 +4037,16 @@ namespace Nilesoft
 
 				__trace(L"ContextMenu init");
 
+				// Every string in the DLL is drawn through BeginBufferedPaint, and
+				// that API has to be initialized per process before it will
+				// composite anything. We never did it, and got away with it only in
+				// hosts that had already done it themselves - Explorer and anything
+				// built on comctl32. Elsewhere BeginBufferedPaint still returns a
+				// handle and DrawThemeTextEx still returns S_OK, so the whole draw
+				// path reports success while the buffer is never blitted back and
+				// every row comes out empty. Matched by uninit in Uninitialize.
+				_buffered_paint = BufferedPaint::init();
+
 				auto initializer = Initializer::instance;
 
 				_context.Selections = &Selected;
@@ -4281,7 +4295,7 @@ namespace Nilesoft
 									L"unmatched=%u owner=%p class='%s' explorer=%d | "
 									L"rcitem=(%d,%d)-(%d,%d) popup=(%d,%d)-(%d,%d) | "
 									L"popupex=%08X mnsel=%u move=%u paint=%u erase=%u | "
-									L"px_item=%u/a%u px_wnd=%u/a%u | "
+									L"px_item=%u/a%u px_wnd=%u/a%u blt=%u bpinit=%d | "
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
@@ -4293,6 +4307,7 @@ namespace Nilesoft
 									static_cast<uint32_t>(_dbg_popup_ex),
 									_n_mn_selectitem, _n_mousemove, _n_wm_paint, _n_wm_erase,
 									_dbg_px_item, _dbg_pa_item, _dbg_px_wnd, _dbg_pa_wnd,
+									_dbg_blt, _buffered_paint ? 1 : 0,
 									_dbg_theme, static_cast<uint32_t>(_dbg_text_hr),
 									_n_drawstring, _n_drawstring_skipped, _n_drawimage,
 									_dbg_buffered ? 1 : 0,
@@ -4314,6 +4329,15 @@ namespace Nilesoft
 				for(auto item : __replaced_system_items)
 					delete item;
 				__replaced_system_items.clear();
+
+				// After the diagnostic above reads it: clearing it earlier would
+				// make the line report 0 for every menu, the way the theme handle
+				// did when it was closed before being logged.
+				if(_buffered_paint)
+				{
+					BufferedPaint::uninit();
+					_buffered_paint = false;
+				}
 
 				__trace(L"ContextMenu.Uninitialized");
 				_uninitialized = true;
@@ -6190,7 +6214,8 @@ namespace Nilesoft
 									? nullptr : ctx->_level.front()->hdc;
 								sample_row(di->hDC, hw, di->rcItem,
 										   ctx->_dbg_px_item, ctx->_dbg_px_wnd,
-										   ctx->_dbg_pa_item, ctx->_dbg_pa_wnd);
+										   ctx->_dbg_pa_item, ctx->_dbg_pa_wnd,
+										   ctx->_dbg_blt);
 							}
 							return dr;
 						}

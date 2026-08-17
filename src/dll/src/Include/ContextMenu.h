@@ -735,8 +735,13 @@ plutovg_move_to(pluto, start.x, start.y);
 			LONG_PTR _dbg_popup_ex{};
 			bool _dbg_have_rc{};
 
+			// Whether this instance initialized the buffered paint API, so the
+			// matching uninit only runs when it did.
+			bool _buffered_paint{};
+
 			uint32_t _dbg_px_item{}, _dbg_px_wnd{};
 			uint32_t _dbg_pa_item{}, _dbg_pa_wnd{};
+			uint32_t _dbg_blt{};
 			bool _dbg_have_px{};
 
 			// -1 until the switch has been read once; reading the registry on every
