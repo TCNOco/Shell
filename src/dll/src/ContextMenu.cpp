@@ -5681,6 +5681,21 @@ namespace Nilesoft
 					ctx->current.hWnd = hWnd;
 					ctx->current.selectitem_pos = cmdItem;
 					lret = defSubclassProc();
+
+					// A host where the menu never repaints answers 450 selection
+					// changes with a single paint, and every row it did paint is
+					// invisible - consistent with that one paint landing before the
+					// window is presented, with nothing to renew it afterwards.
+					// Forcing a repaint here says whether the rows can appear at all.
+					// Switch, not behaviour: HKCU\<APP_KEY>\diag\forcepaint.
+					if(ctx->_diag_forcepaint < 0)
+					{
+						int fp = 0;
+						RegistryConfig::get(L"\\diag", L"forcepaint", fp);
+						ctx->_diag_forcepaint = fp;
+					}
+					if(ctx->_diag_forcepaint > 0)
+						::RedrawWindow(hWnd, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW);
 				//cmdLast
 					if(cmdItem != MFMWFP_NOITEM)
 					{

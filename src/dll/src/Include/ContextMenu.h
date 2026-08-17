@@ -735,6 +735,10 @@ plutovg_move_to(pluto, start.x, start.y);
 			LONG_PTR _dbg_popup_ex{};
 			bool _dbg_have_rc{};
 
+			// -1 until the switch has been read once; reading the registry on every
+			// selection change would put a hive lookup in the mouse path.
+			int _diag_forcepaint{ -1 };
+
 			// What the popup itself is asked to do after the first paint.
 			uint32_t _n_mn_selectitem{};
 			uint32_t _n_mousemove{};
