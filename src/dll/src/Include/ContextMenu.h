@@ -777,6 +777,22 @@ plutovg_move_to(pluto, start.x, start.y);
 			uint32_t _n_wm_paint{};
 			uint32_t _n_wm_erase{};
 
+			// The order of size/move/show/paint on the root popup, recorded as it
+			// happens. The counters above say how often each message arrived, not in
+			// what order, and order is the open question: TreeSize paints the whole
+			// menu before the popup is positioned or shown, and totals cannot say
+			// where its show lands relative to its paints. Root popup only -
+			// submenu traffic would flood the buffer.
+			struct SwpEv
+			{
+				wchar_t t0, t1;
+				uint32_t flags;
+				RECT rc;
+				bool vis;
+			};
+			SwpEv _swp[28]{};
+			uint32_t _n_swp{};
+
 			HTHEME _dbg_theme{};
 			long _dbg_text_hr{ 1 };
 			uint32_t _n_drawstring{};
@@ -788,6 +804,23 @@ plutovg_move_to(pluto, start.x, start.y);
 
 			bool set_prop(auto hWnd) { return Prop::Set(hWnd, this); }
 			ContextMenu *get_prop(auto hWnd) { return Prop::Get(hWnd); }
+
+			void swp_record(WND *wnd, HWND hWnd, wchar_t a, wchar_t b, uint32_t flags, const WINDOWPOS *wp)
+			{
+				if(_level.empty() || _level[0] != wnd)
+					return;
+				if(_n_swp >= _countof(_swp))
+					return;
+				auto &e = _swp[_n_swp++];
+				e.t0 = a;
+				e.t1 = b;
+				e.flags = flags;
+				if(wp)
+					e.rc = { wp->x, wp->y, wp->x + wp->cx, wp->y + wp->cy };
+				else
+					::GetWindowRect(hWnd, &e.rc);
+				e.vis = ::IsWindowVisible(hWnd) != FALSE;
+			}
 
 			void init_cfg();
 			bool prepare_new_items(PositionList &posList, const std::vector<NativeMenu *> &list, MenuItemInfo *owner, menu_t *menu, bool moved = false);

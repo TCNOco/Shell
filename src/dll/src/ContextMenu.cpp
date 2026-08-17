@@ -4305,6 +4305,26 @@ namespace Nilesoft
 
 				if(diag == 1 || (_n_drawitem == 0 && !_items.empty()))
 				{
+					// The recorded order of size/move/show/paint on the root popup.
+					// CG/CD=WM_WINDOWPOSCHANGING/CHANGED (flags are the SWP_ mask),
+					// SW=WM_SHOWWINDOW, SZ=MN_SIZEWINDOW, PT/ER=WM_PAINT/ERASEBKGND,
+					// SL=MN_SELECTITEM (first three). Trailing V/h = window visible
+					// or hidden as the message arrived.
+					wchar_t seq[1152]{};
+					size_t sp = 0;
+					for(uint32_t i = 0; i < _n_swp; i++)
+					{
+						auto &e = _swp[i];
+						auto n = _snwprintf_s(seq + sp, _countof(seq) - sp, _TRUNCATE,
+											  L" %c%c:%04X(%d,%d %dx%d)%c",
+											  e.t0, e.t1, e.flags, e.rc.left, e.rc.top,
+											  e.rc.right - e.rc.left, e.rc.bottom - e.rc.top,
+											  e.vis ? L'V' : L'h');
+						if(n < 0)
+							break;
+						sp += static_cast<size_t>(n);
+					}
+
 					// The draw path runs identically in a host where nothing appears,
 					// so what differs is the state it draws WITH. These are every
 					// gate that can blank the output while leaving the frame:
@@ -4326,7 +4346,7 @@ namespace Nilesoft
 									L"tracked=%p dcwnd=%p dcvis=%d popups[%s ] | "
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
-									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
+									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d | seq[%s ]%s",
 									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough,
 								_n_draw_visible, _n_showpaint,
 									hwnd.owner, Window::class_name(hwnd.owner).c_str(),
@@ -4350,6 +4370,7 @@ namespace Nilesoft
 									_theme.text.color.nor.to_RGB(), static_cast<int>(_theme.text.color.nor.a),
 									_theme.back.color.sel.to_RGB(), static_cast<int>(_theme.back.color.sel.a),
 									_theme.transparent ? 1 : 0, _theme.background.effect,
+									seq,
 									(_n_drawitem == 0 && !_items.empty())
 										? L" -- NO WM_DRAWITEM"
 										: L"");
@@ -4851,7 +4872,23 @@ namespace Nilesoft
 			if(composition && composited != 0)
 				ex_style.add(WS_EX_COMPOSITED);
 
-			//ex_style.add(WS_EX_LAYERED);
+			// A layered window renders into its own surface, and that surface keeps
+			// what is drawn into it while the window is hidden. TreeSize paints the
+			// whole menu before the popup is ever positioned or shown - every one of
+			// those draws lands in a DC with an empty visible region and is silently
+			// discarded, and nothing repaints after the reveal, so the menu tracks
+			// and clicks but shows nothing. On a layered surface those pre-show draws
+			// persist and the reveal composites them. The black colour key keeps
+			// black transparent, which is the same contract the sheet-of-glass trick
+			// gave the non-layered popup: item backgrounds are filled black so the
+			// themed layer window behind shows through.
+			// Switchable at HKCU\<APP_KEY>\diag\layered; absent or non-zero is on.
+			int layered = 1;
+			RegistryConfig::get(L"\\diag", L"layered", layered);
+
+			if(composition && layered != 0)
+				ex_style.add(WS_EX_LAYERED);
+
 			//ex_style.add(WS_EX_NOREDIRECTIONBITMAP);
 
 			if(!cs_style.equals(cs_style_old))
@@ -4869,15 +4906,23 @@ namespace Nilesoft
 
 			::PostMessageW(hWnd, WM_SETCURSOR, 0, 0);
 
-			//int opacity = 100;
-			//SetLayeredWindowAttributes(hWnd, 0, (255 * 100) / 100, LWA_ALPHA);
-			//SetLayeredWindowAttributes(hWnd, 0x0ff00, 0, LWA_COLORKEY);
-			if(composition)
+			if(composition && layered != 0)
+			{
+				// Without this call a WS_EX_LAYERED window has no surface at all and
+				// never appears; with it the surface exists from here on and every
+				// draw - including the pre-show ones - lands somewhere permanent.
+				::SetLayeredWindowAttributes(hWnd, 0x000000, 0xFF, LWA_ALPHA | LWA_COLORKEY);
+			}
+			else if(composition)
 			{
 				AccentPolicy ap(hWnd);
 				//ap.set(AccentPolicy::Disabled);
 				//ap.set(ap.AcrylicBlurBehind, ap.AllowSetWindowRgn, _theme.background.color.to_ABGR());
 
+				// The colour-key path above replaces this: sheet-of-glass makes black
+				// composite as transparent, the colour key makes black literally
+				// transparent, and mixing DWM glass with an SLWA layered surface is
+				// an interaction this codebase has never had to reason about.
 				//if(_theme.transparent)
 				Compositor::TransparentArea(hWnd);
 			}
@@ -5409,12 +5454,34 @@ namespace Nilesoft
 			// whether a redraw was never asked for or asked for and dropped.
 			switch(uMsg)
 			{
-				case MN_SELECTITEM: ctx->_n_mn_selectitem++; break;
+				case MN_SELECTITEM:
+					ctx->_n_mn_selectitem++;
+					if(ctx->_n_mn_selectitem <= 3)
+						ctx->swp_record(wnd, hWnd, L'S', L'L', static_cast<uint32_t>(wParam), nullptr);
+					break;
 				case WM_MOUSEMOVE:  ctx->_n_mousemove++;     break;
-				case WM_PAINT:      ctx->_n_wm_paint++;      break;
-				case WM_ERASEBKGND: ctx->_n_wm_erase++;      break;
+				case WM_PAINT:
+					ctx->_n_wm_paint++;
+					ctx->swp_record(wnd, hWnd, L'P', L'T', 0, nullptr);
+					break;
+				case WM_ERASEBKGND:
+					ctx->_n_wm_erase++;
+					ctx->swp_record(wnd, hWnd, L'E', L'R', 0, nullptr);
+					break;
+				case MN_SIZEWINDOW:
+					ctx->swp_record(wnd, hWnd, L'S', L'Z', static_cast<uint32_t>(wParam), nullptr);
+					break;
+				case WM_SHOWWINDOW:
+					ctx->swp_record(wnd, hWnd, L'S', L'W', static_cast<uint32_t>(wParam), nullptr);
+					break;
+				case WM_WINDOWPOSCHANGING:
+					if(auto wp = reinterpret_cast<WINDOWPOS *>(lParam))
+						ctx->swp_record(wnd, hWnd, L'C', L'G', wp->flags, wp);
+					break;
 				case WM_WINDOWPOSCHANGED:
 				{
+					if(auto wprec = reinterpret_cast<WINDOWPOS *>(lParam))
+						ctx->swp_record(wnd, hWnd, L'C', L'D', wprec->flags, wprec);
 					// The rows are drawn before the popup is revealed. A hidden
 					// window has no visible region, so GDI discards every primitive
 					// and reports success for all of it, and nothing repaints a menu
