@@ -4297,7 +4297,8 @@ namespace Nilesoft
 									L"popupex=%08X mnsel=%u move=%u paint=%u erase=%u | "
 									L"px_item=%u/a%u px_wnd=%u/a%u blt=%u bpinit=%d "
 									L"dctype=%u clip=%d(%d,%d)-(%d,%d) "
-									L"vis=%d wstyle=%08X rgn=%d(%d,%d)-(%d,%d) | "
+									L"vis=%d wstyle=%08X rgn=%d(%d,%d)-(%d,%d) "
+									L"tracked=%p dcwnd=%p dcvis=%d | "
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
@@ -4314,6 +4315,7 @@ namespace Nilesoft
 									_dbg_clip.left, _dbg_clip.top, _dbg_clip.right, _dbg_clip.bottom,
 									_dbg_vis, _dbg_style, _dbg_rgn,
 									_dbg_rgnbox.left, _dbg_rgnbox.top, _dbg_rgnbox.right, _dbg_rgnbox.bottom,
+									_dbg_tracked, _dbg_dcwnd, _dbg_dcwnd_vis,
 									_dbg_theme, static_cast<uint32_t>(_dbg_text_hr),
 									_n_drawstring, _n_drawstring_skipped, _n_drawimage,
 									_dbg_buffered ? 1 : 0,
@@ -6232,6 +6234,16 @@ namespace Nilesoft
 								ctx->_dbg_dctype = ::GetObjectType(di->hDC);
 								ctx->_dbg_clipres = ::GetClipBox(di->hDC, &ctx->_dbg_clip);
 
+								// Which window this DC actually belongs to. Everything
+								// so far has measured _level.front(), on the assumption
+								// that it is the popup being painted. A host whose menu
+								// is fully interactive while that window is never shown
+								// is a reason to check the assumption rather than keep
+								// building on it.
+								ctx->_dbg_dcwnd = ::WindowFromDC(di->hDC);
+								ctx->_dbg_dcwnd_vis = ctx->_dbg_dcwnd
+									? (::IsWindowVisible(ctx->_dbg_dcwnd) ? 1 : 0) : -1;
+
 								// An empty clip on a real window DC means the window
 								// has no visible region: either it is not shown, or a
 								// window region excludes everything. Both are states
@@ -6239,6 +6251,7 @@ namespace Nilesoft
 								if(!ctx->_level.empty() && ctx->_level.front()->handle)
 								{
 									auto ph = ctx->_level.front()->handle;
+									ctx->_dbg_tracked = ph;
 									ctx->_dbg_vis = ::IsWindowVisible(ph) ? 1 : 0;
 									ctx->_dbg_style = static_cast<uint32_t>(::GetWindowLongPtrW(ph, GWL_STYLE));
 									ctx->_dbg_rgn = ::GetWindowRgnBox(ph, &ctx->_dbg_rgnbox);
