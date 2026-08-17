@@ -771,6 +771,7 @@ plutovg_move_to(pluto, start.x, start.y);
 
 			// What the popup itself is asked to do after the first paint.
 			uint32_t _n_draw_visible{};
+			uint32_t _n_showpaint{};
 			uint32_t _n_mn_selectitem{};
 			uint32_t _n_mousemove{};
 			uint32_t _n_wm_paint{};

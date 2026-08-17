@@ -4317,7 +4317,7 @@ namespace Nilesoft
 					// was read here, after CloseThemeData above had already nulled it,
 					// so it printed 0 for working and broken menus alike.
 					Logger::Warning(L"menu teardown: items=%zu measureitem=%u drawitem=%u "
-									L"unmatched=%u drawvis=%u owner=%p class='%s' explorer=%d | "
+									L"unmatched=%u drawvis=%u showpaint=%u owner=%p class='%s' explorer=%d | "
 									L"rcitem=(%d,%d)-(%d,%d) popup=(%d,%d)-(%d,%d) | "
 									L"popupex=%08X mnsel=%u move=%u paint=%u erase=%u | "
 									L"px_item=%u/a%u px_wnd=%u/a%u blt=%u bpinit=%d "
@@ -4327,7 +4327,8 @@ namespace Nilesoft
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
-									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough, _n_draw_visible,
+									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough,
+								_n_draw_visible, _n_showpaint,
 									hwnd.owner, Window::class_name(hwnd.owner).c_str(),
 									Selected.loader.explorer ? 1 : 0,
 									_dbg_rc_item.left, _dbg_rc_item.top, _dbg_rc_item.right, _dbg_rc_item.bottom,
@@ -5412,6 +5413,22 @@ namespace Nilesoft
 				case WM_MOUSEMOVE:  ctx->_n_mousemove++;     break;
 				case WM_PAINT:      ctx->_n_wm_paint++;      break;
 				case WM_ERASEBKGND: ctx->_n_wm_erase++;      break;
+				case WM_WINDOWPOSCHANGED:
+				{
+					// The rows are drawn before the popup is revealed. A hidden
+					// window has no visible region, so GDI discards every primitive
+					// and reports success for all of it, and nothing repaints a menu
+					// once it is up. This is the first moment the window has a
+					// surface to draw on, so put the rows back here.
+					auto wp = reinterpret_cast<WINDOWPOS *>(lParam);
+					if(wp && (wp->flags & SWP_SHOWWINDOW))
+					{
+						ctx->_n_showpaint++;
+						::RedrawWindow(hWnd, nullptr, nullptr,
+									   RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW);
+					}
+					break;
+				}
 				default: break;
 			}
 
