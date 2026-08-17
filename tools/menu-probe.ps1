@@ -57,6 +57,7 @@ namespace MenuProbe {
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern IntPtr FindWindowW(string c, string t);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+    [DllImport("user32.dll")] public static extern IntPtr GetShellWindow();
   }
 }
 '@
@@ -106,6 +107,27 @@ function Invoke-MenuAt {
     }
 }
 
+function Restart-TreeSize {
+    # The DLL is loaded into a host once and stays for the life of the process, so
+    # installing while the host is running leaves it testing the previous build.
+    # That is invisible in the result - the menu just misbehaves the same way - so
+    # restart rather than trusting that the newest binary is the one under test.
+    $p = Get-Process -Name 'TreeSize*' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $p) { return }
+
+    $exe = try { $p.Path } catch { $null }
+    if (-not $exe) {
+        Write-Warning 'TreeSize path unavailable; leaving it running (it may hold an older DLL).'
+        return
+    }
+
+    Write-Host "    restarting TreeSize to load the new DLL"
+    $p | Stop-Process -Force
+    Start-Sleep -Seconds 2
+    Start-Process $exe
+    Start-Sleep -Seconds 6
+}
+
 function Probe-TreeSize {
     $p = Get-Process -Name 'TreeSize*' -ErrorAction SilentlyContinue |
          Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
@@ -123,9 +145,13 @@ function Probe-TreeSize {
 }
 
 function Probe-Explorer {
-    # The desktop always exists and always has our menu, so it needs no window
-    # hunting and cannot be scrolled somewhere unexpected.
-    $prog = [MenuProbe.Native]::FindWindowW('Progman', $null)
+    # GetShellWindow first: FindWindow('Progman') misses the desktop whenever the
+    # wallpaper slideshow has reparented it under a WorkerW, which is why the
+    # Explorer half of the first automated run reported nothing to probe.
+    $prog = [MenuProbe.Native]::GetShellWindow()
+    if ($prog -eq [IntPtr]::Zero) {
+        $prog = [MenuProbe.Native]::FindWindowW('Progman', 'Program Manager')
+    }
     if ($prog -eq [IntPtr]::Zero) { Write-Warning 'desktop window not found'; return $false }
     [void][MenuProbe.Native]::SetForegroundWindow($prog)
     Start-Sleep -Milliseconds 600
@@ -146,12 +172,16 @@ function Show-NewLines {
     $line = $lines[-1].Line
     Write-Host ''
     Write-Host "--- $Label" -ForegroundColor Cyan
-    foreach ($f in 'items=\d+', 'measureitem=\d+', 'drawitem=\d+', 'drawvis=\d+',
-                   'showpaint=\d+', 'mnsel=\d+', 'paint=\d+', 'erase=\d+',
-                   'vis=-?\d+ wstyle=\w+', 'clip=\S+', 'px_item=\S+',
-                   'str=\d+', 'img=\d+', "class='[^']*'") {
+
+    # The whole line, always. Picking fields out by name hid showpaint= entirely
+    # when it was missing, which read as "the counter is zero" when it actually
+    # meant the host was still running an older DLL.
+    Write-Host ("  " + ($line -replace '^\d{4}-\d\d-\d\d ', '')) -ForegroundColor DarkGray
+
+    foreach ($f in 'drawitem=\d+', 'drawvis=\d+', 'showpaint=\d+', 'clip=\S+', 'px_item=\S+') {
         $m = [regex]::Match($line, $f)
-        if ($m.Success) { Write-Host ("  " + $m.Value) }
+        if ($m.Success) { Write-Host ("  " + $m.Value) -ForegroundColor Yellow }
+        else            { Write-Host ("  " + ($f -replace '\\S\+|\\d\+', '') + "MISSING - host is running an older DLL") -ForegroundColor Red }
     }
 }
 
@@ -173,6 +203,7 @@ if (-not $SkipInstall) {
     & (Join-Path $root 'tools\install-local.ps1') | Select-Object -Last 3 |
         ForEach-Object { Write-Host "    $_" }
     Start-Sleep -Seconds 3
+    Restart-TreeSize
 }
 
 foreach ($h in $Hosts) {
