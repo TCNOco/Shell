@@ -4295,7 +4295,8 @@ namespace Nilesoft
 									L"unmatched=%u owner=%p class='%s' explorer=%d | "
 									L"rcitem=(%d,%d)-(%d,%d) popup=(%d,%d)-(%d,%d) | "
 									L"popupex=%08X mnsel=%u move=%u paint=%u erase=%u | "
-									L"px_item=%u/a%u px_wnd=%u/a%u blt=%u bpinit=%d | "
+									L"px_item=%u/a%u px_wnd=%u/a%u blt=%u bpinit=%d "
+									L"dctype=%u clip=%d(%d,%d)-(%d,%d) | "
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
@@ -4308,6 +4309,8 @@ namespace Nilesoft
 									_n_mn_selectitem, _n_mousemove, _n_wm_paint, _n_wm_erase,
 									_dbg_px_item, _dbg_pa_item, _dbg_px_wnd, _dbg_pa_wnd,
 									_dbg_blt, _buffered_paint ? 1 : 0,
+									_dbg_dctype, _dbg_clipres,
+									_dbg_clip.left, _dbg_clip.top, _dbg_clip.right, _dbg_clip.bottom,
 									_dbg_theme, static_cast<uint32_t>(_dbg_text_hr),
 									_n_drawstring, _n_drawstring_skipped, _n_drawimage,
 									_dbg_buffered ? 1 : 0,
@@ -6210,6 +6213,13 @@ namespace Nilesoft
 							if(!ctx->_dbg_have_px && ctx->_n_drawstring > 0)
 							{
 								ctx->_dbg_have_px = true;
+
+								// Every primitive succeeding and leaving nothing is
+								// what an empty clip region looks like: GDI reports
+								// success for drawing it discards. Ask the DC what
+								// it is and what it will accept.
+								ctx->_dbg_dctype = ::GetObjectType(di->hDC);
+								ctx->_dbg_clipres = ::GetClipBox(di->hDC, &ctx->_dbg_clip);
 								HDC hw = ctx->_level.empty() || !ctx->_level.front()
 									? nullptr : ctx->_level.front()->hdc;
 								sample_row(di->hDC, hw, di->rcItem,
