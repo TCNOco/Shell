@@ -745,6 +745,10 @@ plutovg_move_to(pluto, start.x, start.y);
 			uint32_t _dbg_dctype{};
 			RECT _dbg_clip{};
 			int _dbg_clipres{};
+			int _dbg_vis{ -1 };
+			uint32_t _dbg_style{};
+			int _dbg_rgn{ -1 };
+			RECT _dbg_rgnbox{};
 			bool _dbg_have_px{};
 
 			// -1 until the switch has been read once; reading the registry on every

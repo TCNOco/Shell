@@ -4296,7 +4296,8 @@ namespace Nilesoft
 									L"rcitem=(%d,%d)-(%d,%d) popup=(%d,%d)-(%d,%d) | "
 									L"popupex=%08X mnsel=%u move=%u paint=%u erase=%u | "
 									L"px_item=%u/a%u px_wnd=%u/a%u blt=%u bpinit=%d "
-									L"dctype=%u clip=%d(%d,%d)-(%d,%d) | "
+									L"dctype=%u clip=%d(%d,%d)-(%d,%d) "
+									L"vis=%d wstyle=%08X rgn=%d(%d,%d)-(%d,%d) | "
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
@@ -4311,6 +4312,8 @@ namespace Nilesoft
 									_dbg_blt, _buffered_paint ? 1 : 0,
 									_dbg_dctype, _dbg_clipres,
 									_dbg_clip.left, _dbg_clip.top, _dbg_clip.right, _dbg_clip.bottom,
+									_dbg_vis, _dbg_style, _dbg_rgn,
+									_dbg_rgnbox.left, _dbg_rgnbox.top, _dbg_rgnbox.right, _dbg_rgnbox.bottom,
 									_dbg_theme, static_cast<uint32_t>(_dbg_text_hr),
 									_n_drawstring, _n_drawstring_skipped, _n_drawimage,
 									_dbg_buffered ? 1 : 0,
@@ -6220,6 +6223,18 @@ namespace Nilesoft
 								// it is and what it will accept.
 								ctx->_dbg_dctype = ::GetObjectType(di->hDC);
 								ctx->_dbg_clipres = ::GetClipBox(di->hDC, &ctx->_dbg_clip);
+
+								// An empty clip on a real window DC means the window
+								// has no visible region: either it is not shown, or a
+								// window region excludes everything. Both are states
+								// of the window, so read them off the window.
+								if(!ctx->_level.empty() && ctx->_level.front()->handle)
+								{
+									auto ph = ctx->_level.front()->handle;
+									ctx->_dbg_vis = ::IsWindowVisible(ph) ? 1 : 0;
+									ctx->_dbg_style = static_cast<uint32_t>(::GetWindowLongPtrW(ph, GWL_STYLE));
+									ctx->_dbg_rgn = ::GetWindowRgnBox(ph, &ctx->_dbg_rgnbox);
+								}
 								HDC hw = ctx->_level.empty() || !ctx->_level.front()
 									? nullptr : ctx->_level.front()->hdc;
 								sample_row(di->hDC, hw, di->rcItem,
