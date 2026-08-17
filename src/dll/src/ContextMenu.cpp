@@ -1572,6 +1572,57 @@ namespace Nilesoft
 		}
 
 
+		// How much of a just-drawn row actually landed, counted in the DC we were
+		// handed and again in the popup's own window DC. Colour and alpha are
+		// counted apart: the popup is composited as glass, where a pixel with no
+		// alpha is a hole rather than a dark pixel, so a row can be fully drawn in
+		// colour and still be invisible.
+		static void sample_row(HDC hdc_item, HDC hdc_wnd, const RECT &rc,
+							   uint32_t &rgb_item, uint32_t &rgb_wnd,
+							   uint32_t &a_item, uint32_t &a_wnd)
+		{
+			const long w = rc.right - rc.left, h = rc.bottom - rc.top;
+			if(w <= 0 || h <= 0)
+				return;
+
+			BITMAPINFO bi{};
+			bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+			bi.bmiHeader.biWidth = w;
+			bi.bmiHeader.biHeight = -h;
+			bi.bmiHeader.biPlanes = 1;
+			bi.bmiHeader.biBitCount = 32;
+			bi.bmiHeader.biCompression = BI_RGB;
+
+			auto count = [&](HDC src, uint32_t &rgb, uint32_t &alpha)
+			{
+				if(!src)
+					return;
+				HDC mem = ::CreateCompatibleDC(src);
+				if(!mem)
+					return;
+				void *bits{};
+				if(HBITMAP bmp = ::CreateDIBSection(src, &bi, DIB_RGB_COLORS, &bits, nullptr, 0); bmp)
+				{
+					auto old = ::SelectObject(mem, bmp);
+					if(bits && ::BitBlt(mem, 0, 0, w, h, src, rc.left, rc.top, SRCCOPY))
+					{
+						auto p = static_cast<const uint32_t *>(bits);
+						for(long i = 0; i < w * h; i++)
+						{
+							if(p[i] & 0x00FFFFFF) rgb++;
+							if(p[i] & 0xFF000000) alpha++;
+						}
+					}
+					::SelectObject(mem, old);
+					::DeleteObject(bmp);
+				}
+				::DeleteDC(mem);
+			};
+
+			count(hdc_item, rgb_item, a_item);
+			count(hdc_wnd, rgb_wnd, a_wnd);
+		}
+
 		struct DRAWITEMSTATE
 		{
 			// Only these two are ever read. The others - grayed, checked, focus,
@@ -4230,6 +4281,7 @@ namespace Nilesoft
 									L"unmatched=%u owner=%p class='%s' explorer=%d | "
 									L"rcitem=(%d,%d)-(%d,%d) popup=(%d,%d)-(%d,%d) | "
 									L"popupex=%08X mnsel=%u move=%u paint=%u erase=%u | "
+									L"px_item=%u/a%u px_wnd=%u/a%u | "
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
@@ -4240,6 +4292,7 @@ namespace Nilesoft
 									_dbg_rc_popup.left, _dbg_rc_popup.top, _dbg_rc_popup.right, _dbg_rc_popup.bottom,
 									static_cast<uint32_t>(_dbg_popup_ex),
 									_n_mn_selectitem, _n_mousemove, _n_wm_paint, _n_wm_erase,
+									_dbg_px_item, _dbg_pa_item, _dbg_px_wnd, _dbg_pa_wnd,
 									_dbg_theme, static_cast<uint32_t>(_dbg_text_hr),
 									_n_drawstring, _n_drawstring_skipped, _n_drawimage,
 									_dbg_buffered ? 1 : 0,
@@ -6124,7 +6177,22 @@ namespace Nilesoft
 						if(di->CtlType == ODT_MENU/* && wParam == 0*/)
 						{
 							ctx->_n_drawitem++;
-							return ctx->OnDrawItem(di);
+							auto dr = ctx->OnDrawItem(di);
+
+							// Count what landed, once, for the first row that drew
+							// text. Every call in the draw path reports success in a
+							// host where nothing appears, so success is not the
+							// question - whether the pixels are in the window is.
+							if(!ctx->_dbg_have_px && ctx->_n_drawstring > 0)
+							{
+								ctx->_dbg_have_px = true;
+								HDC hw = ctx->_level.empty() || !ctx->_level.front()
+									? nullptr : ctx->_level.front()->hdc;
+								sample_row(di->hDC, hw, di->rcItem,
+										   ctx->_dbg_px_item, ctx->_dbg_px_wnd,
+										   ctx->_dbg_pa_item, ctx->_dbg_pa_wnd);
+							}
+							return dr;
 						}
 						break;
 					}
