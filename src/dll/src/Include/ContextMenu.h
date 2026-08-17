@@ -223,7 +223,17 @@ namespace Nilesoft
 							::EndDeferWindowPos(hWinPosInfo);
 
 						::SetWindowPos(handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOOWNERZORDER |SWP_NOREDRAW | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-						//::ShowWindowAsync(handle, SW_HIDE);
+
+						// The rows are drawn before this point, while the window is
+						// still hidden - a hidden window has no visible region, so
+						// GDI discards every primitive and reports success for all
+						// of it. SWP_NOREDRAW above then shows it without repainting,
+						// so nothing puts those rows back. Hosts where the menu
+						// looked right were being carried by incidental repaints
+						// arriving afterwards; where none arrive, the menu stays
+						// empty and only the layer behind it is visible.
+						::RedrawWindow(handle, nullptr, nullptr,
+									   RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW);
 					}
 
 					visible_layers = layer.visible || blurry.visible;
@@ -756,6 +766,7 @@ plutovg_move_to(pluto, start.x, start.y);
 			int _diag_forcepaint{ -1 };
 
 			// What the popup itself is asked to do after the first paint.
+			uint32_t _n_draw_visible{};
 			uint32_t _n_mn_selectitem{};
 			uint32_t _n_mousemove{};
 			uint32_t _n_wm_paint{};

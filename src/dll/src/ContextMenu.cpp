@@ -4292,7 +4292,7 @@ namespace Nilesoft
 					// was read here, after CloseThemeData above had already nulled it,
 					// so it printed 0 for working and broken menus alike.
 					Logger::Warning(L"menu teardown: items=%zu measureitem=%u drawitem=%u "
-									L"unmatched=%u owner=%p class='%s' explorer=%d | "
+									L"unmatched=%u drawvis=%u owner=%p class='%s' explorer=%d | "
 									L"rcitem=(%d,%d)-(%d,%d) popup=(%d,%d)-(%d,%d) | "
 									L"popupex=%08X mnsel=%u move=%u paint=%u erase=%u | "
 									L"px_item=%u/a%u px_wnd=%u/a%u blt=%u bpinit=%d "
@@ -4301,7 +4301,7 @@ namespace Nilesoft
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
-									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough,
+									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough, _n_draw_visible,
 									hwnd.owner, Window::class_name(hwnd.owner).c_str(),
 									Selected.loader.explorer ? 1 : 0,
 									_dbg_rc_item.left, _dbg_rc_item.top, _dbg_rc_item.right, _dbg_rc_item.bottom,
@@ -6207,6 +6207,14 @@ namespace Nilesoft
 						if(di->CtlType == ODT_MENU/* && wParam == 0*/)
 						{
 							ctx->_n_drawitem++;
+
+							// Draws that had somewhere to land. A draw into a hidden
+							// window is discarded in full and still reports success,
+							// so the draw total on its own says nothing.
+							if(!ctx->_level.empty() && ctx->_level.front()->handle
+							   && ::IsWindowVisible(ctx->_level.front()->handle))
+								ctx->_n_draw_visible++;
+
 							auto dr = ctx->OnDrawItem(di);
 
 							// Count what landed, once, for the first row that drew
