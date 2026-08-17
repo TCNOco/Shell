@@ -732,6 +732,7 @@ plutovg_move_to(pluto, start.x, start.y);
 			// refused to paint.
 			RECT _dbg_rc_item{};
 			RECT _dbg_rc_popup{};
+			LONG_PTR _dbg_popup_ex{};
 			bool _dbg_have_rc{};
 
 			// What the popup itself is asked to do after the first paint.

@@ -1604,7 +1604,10 @@ namespace Nilesoft
 				_dbg_have_rc = true;
 				_dbg_rc_item = di->rcItem;
 				if(!_level.empty() && _level.front()->handle)
+				{
 					::GetWindowRect(_level.front()->handle, &_dbg_rc_popup);
+					_dbg_popup_ex = ::GetWindowLongPtrW(_level.front()->handle, GWL_EXSTYLE);
+				}
 			}
 
 			Flag<uint32_t> faction = di->itemAction;
@@ -4226,7 +4229,7 @@ namespace Nilesoft
 					Logger::Warning(L"menu teardown: items=%zu measureitem=%u drawitem=%u "
 									L"unmatched=%u owner=%p class='%s' explorer=%d | "
 									L"rcitem=(%d,%d)-(%d,%d) popup=(%d,%d)-(%d,%d) | "
-									L"mnsel=%u move=%u paint=%u erase=%u | "
+									L"popupex=%08X mnsel=%u move=%u paint=%u erase=%u | "
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
@@ -4235,6 +4238,7 @@ namespace Nilesoft
 									Selected.loader.explorer ? 1 : 0,
 									_dbg_rc_item.left, _dbg_rc_item.top, _dbg_rc_item.right, _dbg_rc_item.bottom,
 									_dbg_rc_popup.left, _dbg_rc_popup.top, _dbg_rc_popup.right, _dbg_rc_popup.bottom,
+									static_cast<uint32_t>(_dbg_popup_ex),
 									_n_mn_selectitem, _n_mousemove, _n_wm_paint, _n_wm_erase,
 									_dbg_theme, static_cast<uint32_t>(_dbg_text_hr),
 									_n_drawstring, _n_drawstring_skipped, _n_drawimage,
@@ -4724,7 +4728,16 @@ namespace Nilesoft
 			ex_style.remove(WS_EX_WINDOWEDGE);
 			ex_style.remove(WS_EX_DLGMODALFRAME);
 
-			if(composition)
+			// WS_EX_COMPOSITED double-buffers the popup. USER32 redraws a menu row
+			// on selection by painting straight into a DC it fetches itself, not
+			// inside a paint cycle, and a double-buffered window can discard that -
+			// which leaves a menu that tracks the mouse and never redraws.
+			// Switchable at HKCU\<APP_KEY>\diag\composited so the two can be
+			// compared on one machine; absent or non-zero keeps the old behaviour.
+			int composited = 1;
+			RegistryConfig::get(L"\\diag", L"composited", composited);
+
+			if(composition && composited != 0)
 				ex_style.add(WS_EX_COMPOSITED);
 
 			//ex_style.add(WS_EX_LAYERED);
