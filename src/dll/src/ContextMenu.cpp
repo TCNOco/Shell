@@ -1599,6 +1599,14 @@ namespace Nilesoft
 			auto hMenu = reinterpret_cast<HMENU>(di->hwndItem);
 			auto rc = reinterpret_cast<const Rect *>(&di->rcItem);
 
+			if(!_dbg_have_rc)
+			{
+				_dbg_have_rc = true;
+				_dbg_rc_item = di->rcItem;
+				if(!_level.empty() && _level.front()->handle)
+					::GetWindowRect(_level.front()->handle, &_dbg_rc_popup);
+			}
+
 			Flag<uint32_t> faction = di->itemAction;
 			Flag<uint32_t> fState = di->itemState;
 
@@ -4217,12 +4225,15 @@ namespace Nilesoft
 					// so it printed 0 for working and broken menus alike.
 					Logger::Warning(L"menu teardown: items=%zu measureitem=%u drawitem=%u "
 									L"unmatched=%u owner=%p class='%s' explorer=%d | "
-									L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
+									L"rcitem=(%d,%d)-(%d,%d) popup=(%d,%d)-(%d,%d) | "
+								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
 									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough,
 									hwnd.owner, Window::class_name(hwnd.owner).c_str(),
 									Selected.loader.explorer ? 1 : 0,
+									_dbg_rc_item.left, _dbg_rc_item.top, _dbg_rc_item.right, _dbg_rc_item.bottom,
+									_dbg_rc_popup.left, _dbg_rc_popup.top, _dbg_rc_popup.right, _dbg_rc_popup.bottom,
 									_dbg_theme, static_cast<uint32_t>(_dbg_text_hr),
 									_n_drawstring, _n_drawstring_skipped, _n_drawimage,
 									_dbg_buffered ? 1 : 0,

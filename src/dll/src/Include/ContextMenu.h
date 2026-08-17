@@ -726,6 +726,14 @@ plutovg_move_to(pluto, start.x, start.y);
 			//   _dbg_buffered  - whether BeginBufferedPaint gave us its own DC
 			//   _n_drawstring* - text drawn, versus skipped for alpha 0
 			//   _n_drawimage   - icons blitted, which bypass the theme entirely
+			// Where the first row was told to draw, against where the popup
+			// actually is. Every GDI call can succeed and still be clipped away
+			// if the two do not overlap, which looks exactly like a menu that
+			// refused to paint.
+			RECT _dbg_rc_item{};
+			RECT _dbg_rc_popup{};
+			bool _dbg_have_rc{};
+
 			HTHEME _dbg_theme{};
 			long _dbg_text_hr{ 1 };
 			uint32_t _n_drawstring{};
