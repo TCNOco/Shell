@@ -734,6 +734,12 @@ plutovg_move_to(pluto, start.x, start.y);
 			RECT _dbg_rc_popup{};
 			bool _dbg_have_rc{};
 
+			// What the popup itself is asked to do after the first paint.
+			uint32_t _n_mn_selectitem{};
+			uint32_t _n_mousemove{};
+			uint32_t _n_wm_paint{};
+			uint32_t _n_wm_erase{};
+
 			HTHEME _dbg_theme{};
 			long _dbg_text_hr{ 1 };
 			uint32_t _n_drawstring{};

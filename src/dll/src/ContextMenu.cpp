@@ -4226,6 +4226,7 @@ namespace Nilesoft
 					Logger::Warning(L"menu teardown: items=%zu measureitem=%u drawitem=%u "
 									L"unmatched=%u owner=%p class='%s' explorer=%d | "
 									L"rcitem=(%d,%d)-(%d,%d) popup=(%d,%d)-(%d,%d) | "
+									L"mnsel=%u move=%u paint=%u erase=%u | "
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d%s",
@@ -4234,6 +4235,7 @@ namespace Nilesoft
 									Selected.loader.explorer ? 1 : 0,
 									_dbg_rc_item.left, _dbg_rc_item.top, _dbg_rc_item.right, _dbg_rc_item.bottom,
 									_dbg_rc_popup.left, _dbg_rc_popup.top, _dbg_rc_popup.right, _dbg_rc_popup.bottom,
+									_n_mn_selectitem, _n_mousemove, _n_wm_paint, _n_wm_erase,
 									_dbg_theme, static_cast<uint32_t>(_dbg_text_hr),
 									_n_drawstring, _n_drawstring_skipped, _n_drawimage,
 									_dbg_buffered ? 1 : 0,
@@ -5276,6 +5278,19 @@ namespace Nilesoft
 
 			if(!wnd->hdc)
 				wnd->hdc = ::GetWindowDC(hWnd);
+
+			// A popup that paints once and a popup that keeps painting receive the
+			// same first paint, so what tells them apart is what arrives after it.
+			// Counted rather than inferred from the draw totals: those cannot say
+			// whether a redraw was never asked for or asked for and dropped.
+			switch(uMsg)
+			{
+				case MN_SELECTITEM: ctx->_n_mn_selectitem++; break;
+				case WM_MOUSEMOVE:  ctx->_n_mousemove++;     break;
+				case WM_PAINT:      ctx->_n_wm_paint++;      break;
+				case WM_ERASEBKGND: ctx->_n_wm_erase++;      break;
+				default: break;
+			}
 
 			LRESULT lret = FALSE;
 			auto theme = &ctx->_theme;
