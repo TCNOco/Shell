@@ -69,6 +69,7 @@ namespace LiveMenu {
     [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
     [DllImport("user32.dll")] public static extern int GetWindowThreadProcessId(IntPtr h, out int pid);
+    [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int attr, out int val, int cb);
   }
 }
 '@
@@ -163,6 +164,15 @@ Write-Host ''
 Write-Host ("popup rect: ({0},{1})-({2},{3})  {4}x{5}  style=0x{6:X8} exstyle=0x{7:X8}" -f `
     $r.left, $r.top, $r.right, $r.bottom, ($r.right-$r.left), ($r.bottom-$r.top), $style, $exstyle) -ForegroundColor Green
 
+# DWM can drop a window from composition entirely ("cloaked") while USER still
+# reports it visible. A cloaked popup would hold every drawn pixel, pass every
+# IsWindowVisible check, take every click - and put nothing on screen. That is
+# indistinguishable from "covered by another window" without asking DWM.
+$DWMWA_CLOAKED = 14
+$cloak = 0
+$hr = [LiveMenu.Native]::DwmGetWindowAttribute($hwnd, $DWMWA_CLOAKED, [ref]$cloak, 4)
+Write-Host ("popup cloaked: {0} (hr=0x{1:X8}; 0=not cloaked, 1=app, 2=shell, 4=inherited)" -f $cloak, $hr) -ForegroundColor $(if ($cloak -ne 0) { 'Red' } else { 'Green' })
+
 $cur = New-Object LiveMenu.POINT
 [void][LiveMenu.Native]::GetCursorPos([ref]$cur)
 $under = [LiveMenu.Native]::WindowFromPoint($cur)
@@ -195,6 +205,30 @@ $popupIdx = $order.IndexOf($hwnd)
 
 Write-Host ''
 Write-Host "z-order: popup is #$popupIdx of $($order.Count) top-level windows (0 = frontmost)" -ForegroundColor Green
+
+# Every visible window that sorts above the popup AND overlaps its rectangle -
+# the actual cover set, whatever the windows are. The layer check below only
+# looks for our own class, and a menu can just as well be hidden behind
+# something else entirely.
+Write-Host 'windows above the popup overlapping its rect:' -ForegroundColor Green
+$covers = 0
+for ($i = 0; $i -lt $popupIdx; $i++) {
+    $h = $order[$i]
+    if (-not [LiveMenu.Native]::IsWindowVisible($h)) { continue }
+    $cr = New-Object LiveMenu.RECT
+    [void][LiveMenu.Native]::GetWindowRect($h, [ref]$cr)
+    if ($cr.left -ge $r.right -or $cr.right -le $r.left -or $cr.top -ge $r.bottom -or $cr.bottom -le $r.top) { continue }
+    $sb = New-Object System.Text.StringBuilder 256
+    [void][LiveMenu.Native]::GetClassNameW($h, $sb, 256)
+    $procId = 0; [void][LiveMenu.Native]::GetWindowThreadProcessId($h, [ref]$procId)
+    $ex = [LiveMenu.Native]::GetWindowLongW($h, -20)
+    $ck = 0; [void][LiveMenu.Native]::DwmGetWindowAttribute($h, $DWMWA_CLOAKED, [ref]$ck, 4)
+    $covers++
+    Write-Host ("  #{0} {1} class='{2}' pid={3} rect=({4},{5})-({6},{7}) exstyle=0x{8:X8} cloaked={9}" -f `
+        $i, $h, $sb.ToString(), $procId, $cr.left, $cr.top, $cr.right, $cr.bottom, $ex, $ck) -ForegroundColor Yellow
+    if ($covers -ge 15) { Write-Host '  (stopping at 15)' -ForegroundColor DarkGray; break }
+}
+if ($covers -eq 0) { Write-Host '  (none - nothing visible covers the popup)' -ForegroundColor DarkGray }
 
 $layersAbove = 0
 for ($i = 0; $i -lt $order.Count; $i++) {
