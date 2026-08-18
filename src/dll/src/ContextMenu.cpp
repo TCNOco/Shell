@@ -1669,6 +1669,85 @@ namespace Nilesoft
 			}
 		};
 
+		// Paints the menu rows without win32k's help. In some hosts (TreeSize) the
+		// menu is painted in full while the popup is still hidden and unpositioned -
+		// every draw lands in a DC with no visible region and is discarded - and
+		// win32k then never paints it again: invalidation produces empty paints and
+		// selection changes produce no WM_DRAWITEM at all. The menu data, the item
+		// rectangles and the entire drawing routine are all ours, so the only thing
+		// win32k was contributing is the call - which this replaces.
+		//
+		// only_pos: -1 paints every item, otherwise just that position.
+		// sel_pos:  the position drawn as selected.
+		void ContextMenu::SelfPaint(WND *wnd, HWND hWnd, int only_pos, int sel_pos)
+		{
+			auto hMenu = wnd ? wnd->hMenu : nullptr;
+			if(!hMenu)
+				hMenu = reinterpret_cast<HMENU>(::SendMessageW(hWnd, MN_GETHMENU, 0, 0));
+			if(!::IsMenu(hMenu))
+				return;
+
+			// Client DC and client coordinates, to match what a real WM_DRAWITEM
+			// carries: its rcItem for the first row is (0,0)-(w,h).
+			HDC hdc = ::GetDC(hWnd);
+			if(!hdc)
+				return;
+
+			int n = ::GetMenuItemCount(hMenu);
+			for(int i = 0; i < n; i++)
+			{
+				if(only_pos >= 0 && i != only_pos)
+					continue;
+
+				RECT rc{};
+				// The window "containing the menu" for a tracked popup is the popup
+				// itself; nullptr is documented as a fallback the system resolves.
+				if(!::GetMenuItemRect(hWnd, hMenu, static_cast<UINT>(i), &rc) &&
+				   !::GetMenuItemRect(nullptr, hMenu, static_cast<UINT>(i), &rc))
+					continue;
+				::MapWindowPoints(nullptr, hWnd, reinterpret_cast<POINT *>(&rc), 2);
+
+				MENUITEMINFOW mii = { sizeof(mii), MIIM_ID | MIIM_STATE | MIIM_FTYPE };
+				if(!::GetMenuItemInfoW(hMenu, static_cast<UINT>(i), TRUE, &mii))
+					continue;
+
+				// Rows that are not ours would fall into OnDrawItem's pass-through,
+				// which replays the message being dispatched - there is none here.
+				if(mii.wID != MF_NOITEM && !get_item(mii.wID, hMenu, _items))
+					continue;
+
+				DRAWITEMSTRUCT dis{};
+				dis.CtlType = ODT_MENU;
+				dis.itemID = mii.wID;
+				dis.itemAction = ODA_DRAWENTIRE;
+				dis.hwndItem = reinterpret_cast<HWND>(hMenu);
+				dis.hDC = hdc;
+				dis.rcItem = rc;
+				if(i == sel_pos || (mii.fState & MFS_HILITE))
+					dis.itemState |= ODS_SELECTED;
+				if(mii.fState & MFS_DISABLED)
+					dis.itemState |= ODS_DISABLED | ODS_GRAYED;
+				if(mii.fState & MFS_CHECKED)
+					dis.itemState |= ODS_CHECKED;
+				if(mii.fState & MFS_DEFAULT)
+					dis.itemState |= ODS_DEFAULT;
+
+				OnDrawItem(&dis);
+
+				if(!_dbg_have_px_self && mii.wID != MF_NOITEM)
+				{
+					_dbg_have_px_self = true;
+					uint32_t dummy_rgb{}, dummy_a{};
+					sample_row(hdc, nullptr, rc, _dbg_px_self, dummy_rgb,
+							   _dbg_pa_self, dummy_a, _dbg_blt_self);
+				}
+			}
+
+			_n_selfpaint++;
+			::GdiFlush();
+			::ReleaseDC(hWnd, hdc);
+		}
+
 		LRESULT ContextMenu::OnDrawItem(DRAWITEMSTRUCT *di)
 		{
 			LRESULT lret = TRUE;
@@ -4346,7 +4425,8 @@ namespace Nilesoft
 									L"tracked=%p dcwnd=%p dcvis=%d popups[%s ] | "
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
-									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d | seq[%s ]%s",
+									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d | "
+									L"sp=%u px_self=%u/a%u b%u | seq[%s ]%s",
 									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough,
 								_n_draw_visible, _n_showpaint,
 									hwnd.owner, Window::class_name(hwnd.owner).c_str(),
@@ -4370,6 +4450,7 @@ namespace Nilesoft
 									_theme.text.color.nor.to_RGB(), static_cast<int>(_theme.text.color.nor.a),
 									_theme.back.color.sel.to_RGB(), static_cast<int>(_theme.back.color.sel.a),
 									_theme.transparent ? 1 : 0, _theme.background.effect,
+									_n_selfpaint, _dbg_px_self, _dbg_pa_self, _dbg_blt_self,
 									seq,
 									(_n_drawitem == 0 && !_items.empty())
 										? L" -- NO WM_DRAWITEM"
@@ -4872,18 +4953,14 @@ namespace Nilesoft
 			if(composition && composited != 0)
 				ex_style.add(WS_EX_COMPOSITED);
 
-			// A layered window renders into its own surface, and that surface keeps
-			// what is drawn into it while the window is hidden. TreeSize paints the
-			// whole menu before the popup is ever positioned or shown - every one of
-			// those draws lands in a DC with an empty visible region and is silently
-			// discarded, and nothing repaints after the reveal, so the menu tracks
-			// and clicks but shows nothing. On a layered surface those pre-show draws
-			// persist and the reveal composites them. The black colour key keeps
-			// black transparent, which is the same contract the sheet-of-glass trick
-			// gave the non-layered popup: item backgrounds are filled black so the
-			// themed layer window behind shows through.
-			// Switchable at HKCU\<APP_KEY>\diag\layered; absent or non-zero is on.
-			int layered = 1;
+			// Tried and rejected as the fix for hosts whose menu paints before the
+			// popup is shown: a layered surface did make the hidden draws stick
+			// (px_item went from 0 to 5880), but the surface that finally shows is
+			// not the one that was drawn into, so the menu stayed blank in TreeSize
+			// while Explorer picked up every layered-presentation artifact - square
+			// corners, an unpainted white frame, colour-key fringing on the text.
+			// Kept as a switch for measurement only. The actual fix is SelfPaint.
+			int layered = 0;
 			RegistryConfig::get(L"\\diag", L"layered", layered);
 
 			if(composition && layered != 0)
@@ -5799,6 +5876,38 @@ namespace Nilesoft
 							}*/
 						}
 					}
+
+					// Every draw so far landed while the popup was hidden, and the
+					// popup is visible now: win32k painted this menu only before its
+					// reveal and will not paint it again - invalidation comes back as
+					// empty paints, selection changes produce no draws. Take the
+					// painting over. WS_EX_COMPOSITED goes first: it defers
+					// out-of-cycle drawing into a buffer only a paint cycle flushes,
+					// and this popup never gets one.
+					// Switch: HKCU\<APP_KEY>\diag\selfpaint, absent or non-zero on.
+					if(!wnd->self_paint && !flags.has(SWP_HIDEWINDOW)
+					   && ctx->_n_drawitem && !ctx->_n_draw_visible
+					   && ::IsWindowVisible(hWnd))
+					{
+						int sp = 1;
+						RegistryConfig::get(L"\\diag", L"selfpaint", sp);
+						if(sp != 0)
+						{
+							wnd->self_paint = true;
+							Flag<LONG_PTR> ex = ::GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
+							if(ex.has(WS_EX_COMPOSITED))
+							{
+								ex.remove(WS_EX_COMPOSITED);
+								::SetWindowLongPtrW(hWnd, GWL_EXSTYLE, ex);
+							}
+							ctx->SelfPaint(wnd, hWnd, -1, wnd->self_sel);
+						}
+					}
+					else if(wnd->self_paint && !flags.has(SWP_NOMOVE))
+					{
+						// The surface contents may not survive a move; repaint.
+						ctx->SelfPaint(wnd, hWnd, -1, wnd->self_sel);
+					}
 					return lret;
 					//wnd->rect = { wp->x, wp->y, wp->cx, wp->cy };
 					//return ::DefSubclassProc(hWnd, uMsg, wParam, lParam);
@@ -5875,6 +5984,24 @@ namespace Nilesoft
 					ctx->current.hWnd = hWnd;
 					ctx->current.selectitem_pos = cmdItem;
 					lret = defSubclassProc();
+
+					// Hover, for a popup whose painting we took over: win32k redraws
+					// nothing on selection change there, so the rows that changed
+					// state are repainted here - the old one back to normal, the new
+					// one selected.
+					if(wnd->self_paint)
+					{
+						int newsel = cmdItem == MFMWFP_NOITEM ? -1 : static_cast<int>(cmdItem);
+						if(newsel != wnd->self_sel)
+						{
+							auto old = wnd->self_sel;
+							wnd->self_sel = newsel;
+							if(old >= 0)
+								ctx->SelfPaint(wnd, hWnd, old, newsel);
+							if(newsel >= 0)
+								ctx->SelfPaint(wnd, hWnd, newsel, newsel);
+						}
+					}
 
 					// A host where the menu never repaints answers 450 selection
 					// changes with a single paint, and every row it did paint is

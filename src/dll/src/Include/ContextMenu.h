@@ -179,6 +179,13 @@ namespace Nilesoft
 
 			HWND dr = 0;
 
+			// Set once win32k has demonstrably stopped painting this popup: every
+			// draw so far landed while the window was hidden, and selection changes
+			// produce no draws at all. From then on the rows are painted by
+			// SelfPaint, and self_sel tracks the selected position for it.
+			bool self_paint = false;
+			int self_sel = -1;
+
 			WND(HWND hWnd = nullptr) : handle{ hWnd }
 			{
 				//cs.lock();
@@ -793,6 +800,12 @@ plutovg_move_to(pluto, start.x, start.y);
 			SwpEv _swp[28]{};
 			uint32_t _n_swp{};
 
+			// SelfPaint activity: passes run, and what the first self-painted row
+			// left in the window, read back the same way as px_item.
+			uint32_t _n_selfpaint{};
+			uint32_t _dbg_px_self{}, _dbg_pa_self{}, _dbg_blt_self{};
+			bool _dbg_have_px_self{};
+
 			HTHEME _dbg_theme{};
 			long _dbg_text_hr{ 1 };
 			uint32_t _n_drawstring{};
@@ -840,6 +853,7 @@ plutovg_move_to(pluto, start.x, start.y);
 			LRESULT OnMenuSelect(HMENU hMenu, uint32_t id, uint32_t flags);
 			LRESULT OnDrawItem(DRAWITEMSTRUCT *di);
 			LRESULT OnMeasureItem(MEASUREITEMSTRUCT *mi);
+			void SelfPaint(WND *wnd, HWND hWnd, int only_pos, int sel_pos);
 
 
 			uint32_t invoke(CommandProperty *cmd_prop);
