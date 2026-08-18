@@ -4460,7 +4460,7 @@ namespace Nilesoft
 								L"theme=%p hr=%08X str=%u skipped=%u img=%u buffered=%d | "
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d | "
-									L"sp=%u px_self=%u/a%u b%u | seq[%s ]%s",
+									L"sp=%u spt=%u/%u/%u px_self=%u/a%u b%u | seq[%s ]%s",
 									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough,
 								_n_draw_visible, _n_showpaint,
 									hwnd.owner, Window::class_name(hwnd.owner).c_str(),
@@ -4484,7 +4484,8 @@ namespace Nilesoft
 									_theme.text.color.nor.to_RGB(), static_cast<int>(_theme.text.color.nor.a),
 									_theme.back.color.sel.to_RGB(), static_cast<int>(_theme.back.color.sel.a),
 									_theme.transparent ? 1 : 0, _theme.background.effect,
-									_n_selfpaint, _dbg_px_self, _dbg_pa_self, _dbg_blt_self,
+									_n_selfpaint, _n_sp_timer_set, _n_sp_timer_fire, _n_sp_open,
+									_dbg_px_self, _dbg_pa_self, _dbg_blt_self,
 									seq,
 									(_n_drawitem == 0 && !_items.empty())
 										? L" -- NO WM_DRAWITEM"
@@ -4945,6 +4946,36 @@ namespace Nilesoft
 		// Submenu auto-open for popups painted by SelfPaint. Not a system timer id:
 		// win32k's own IDSYS_MN* timers never fire for an abandoned popup.
 		static constexpr UINT_PTR IDT_SELFOPEN = 0x7C31;
+
+		// TIMERPROC rather than a WM_TIMER handler in the subclass: menu tracking
+		// runs a modal loop inside win32k, which filters what reaches the popup's
+		// window procedure - a plain timer message can vanish there. DispatchMessage
+		// invokes a TIMERPROC directly, whichever loop is pumping.
+		void __stdcall ContextMenu::SelfOpenTimerProc(HWND hWnd, UINT, UINT_PTR idEvent, DWORD)
+		{
+			::KillTimer(hWnd, idEvent);
+
+			auto wnd = WND::get_prop(hWnd);
+			auto ctx = wnd ? wnd->ctx : nullptr;
+			if(!wnd || !ctx || !wnd->self_paint || wnd->self_sel < 0)
+				return;
+
+			ctx->_n_sp_timer_fire++;
+
+			// The selection may have moved since the timer was set; only open for
+			// an item that still has a hierarchy to open.
+			MENUITEMINFOW mii = { sizeof(mii), MIIM_SUBMENU };
+			auto hm = wnd->hMenu
+				? wnd->hMenu
+				: reinterpret_cast<HMENU>(::SendMessageW(hWnd, MN_GETHMENU, 0, 0));
+			if(::IsMenu(hm)
+			   && ::GetMenuItemInfoW(hm, static_cast<UINT>(wnd->self_sel), TRUE, &mii)
+			   && mii.hSubMenu)
+			{
+				ctx->_n_sp_open++;
+				::SendMessageW(hWnd, MN_OPENHIERARCHY, 0, 0);
+			}
+		}
 
 		WND *ContextMenu::OnMenuCreate(HWND hWnd)
 		{
@@ -6034,7 +6065,8 @@ namespace Nilesoft
 							{
 								uint32_t delay = 400;
 								::SystemParametersInfoW(SPI_GETMENUSHOWDELAY, 0, &delay, 0);
-								::SetTimer(hWnd, IDT_SELFOPEN, delay ? delay : 50, nullptr);
+								ctx->_n_sp_timer_set++;
+								::SetTimer(hWnd, IDT_SELFOPEN, delay ? delay : 50, SelfOpenTimerProc);
 							}
 						}
 					}
@@ -6220,11 +6252,9 @@ namespace Nilesoft
 				{
 					if(wParam == IDT_SELFOPEN)
 					{
-						::KillTimer(hWnd, IDT_SELFOPEN);
-						// The selection may have left the submenu item - or the menu
-						// entirely - since the timer was set.
-						if(wnd->self_paint && wnd->self_sel >= 0)
-							::SendMessageW(hWnd, MN_OPENHIERARCHY, 0, 0);
+						// Normally DispatchMessage calls the TIMERPROC and this never
+						// runs; kept for a raw delivery, doing the same thing.
+						SelfOpenTimerProc(hWnd, uMsg, IDT_SELFOPEN, 0);
 						return 0;
 					}
 					switch(wParam)

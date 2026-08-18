@@ -814,6 +814,14 @@ plutovg_move_to(pluto, start.x, start.y);
 			uint32_t _dbg_px_self{}, _dbg_pa_self{}, _dbg_blt_self{};
 			bool _dbg_have_px_self{};
 
+			// The submenu auto-open pipeline, stage by stage: timers set on hover,
+			// timer callbacks that actually ran, MN_OPENHIERARCHY sends issued.
+			// Each stage can fail silently inside the menu modal loop, and only a
+			// counter per stage says which one did.
+			uint32_t _n_sp_timer_set{};
+			uint32_t _n_sp_timer_fire{};
+			uint32_t _n_sp_open{};
+
 			HTHEME _dbg_theme{};
 			long _dbg_text_hr{ 1 };
 			uint32_t _n_drawstring{};
@@ -916,6 +924,7 @@ plutovg_move_to(pluto, start.x, start.y);
 														UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 			//static LRESULT __stdcall MenuProc(HWND hWnd, uint32_t uMsg, WPARAM wParam, LPARAM lParam);
 			static LRESULT __stdcall MenuSubClassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+			static void __stdcall SelfOpenTimerProc(HWND hWnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
 			static void __stdcall WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD dwEvent, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime);
 			static LRESULT __stdcall KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
 
