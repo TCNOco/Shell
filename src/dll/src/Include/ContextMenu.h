@@ -186,6 +186,14 @@ namespace Nilesoft
 			bool self_paint = false;
 			int self_sel = -1;
 
+			// Where this popup's own draws landed. The context-wide totals cannot
+			// arm a submenu: its draws arrive while the ROOT is visible, so a
+			// session-wide "any draw was visible" is true the moment the root shows,
+			// and the submenu - painted hidden exactly like the root was - would
+			// never take over its painting.
+			uint32_t n_drawitem = 0;
+			uint32_t n_drawitem_vis = 0;
+
 			WND(HWND hWnd = nullptr) : handle{ hWnd }
 			{
 				//cs.lock();
@@ -854,6 +862,7 @@ plutovg_move_to(pluto, start.x, start.y);
 			LRESULT OnDrawItem(DRAWITEMSTRUCT *di);
 			LRESULT OnMeasureItem(MEASUREITEMSTRUCT *mi);
 			void SelfPaint(WND *wnd, HWND hWnd, int only_pos, int sel_pos);
+			bool MaybeArmSelfPaint(WND *wnd, HWND hWnd);
 
 
 			uint32_t invoke(CommandProperty *cmd_prop);

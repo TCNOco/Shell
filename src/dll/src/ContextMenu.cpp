@@ -1723,7 +1723,11 @@ namespace Nilesoft
 				dis.hwndItem = reinterpret_cast<HWND>(hMenu);
 				dis.hDC = hdc;
 				dis.rcItem = rc;
-				if(i == sel_pos || (mii.fState & MFS_HILITE))
+				// self_sel only - MFS_HILITE is win32k's bookkeeping, and in the
+				// hosts that need SelfPaint it goes stale: a parent row kept its
+				// hilite bit after the submenu closed, and painting from it left the
+				// row stuck in the hover colour.
+				if(i == sel_pos)
 					dis.itemState |= ODS_SELECTED;
 				if(mii.fState & MFS_DISABLED)
 					dis.itemState |= ODS_DISABLED | ODS_GRAYED;
@@ -1746,6 +1750,36 @@ namespace Nilesoft
 			_n_selfpaint++;
 			::GdiFlush();
 			::ReleaseDC(hWnd, hdc);
+		}
+
+		// Arms SelfPaint for one popup when its own draw ledger shows the win32k
+		// abandonment signature: rows were drawn, none while this window was
+		// visible, and the window is visible now. Returns true only when it armed
+		// and painted here. WS_EX_COMPOSITED is dropped from such a popup first:
+		// it defers out-of-cycle drawing into a buffer that only a paint cycle
+		// flushes, and an abandoned popup never gets one.
+		// Switch: HKCU\<APP_KEY>\diag\selfpaint, absent or non-zero is on.
+		bool ContextMenu::MaybeArmSelfPaint(WND *wnd, HWND hWnd)
+		{
+			if(!wnd || wnd->self_paint)
+				return false;
+			if(!wnd->n_drawitem || wnd->n_drawitem_vis || !::IsWindowVisible(hWnd))
+				return false;
+
+			int sp = 1;
+			RegistryConfig::get(L"\\diag", L"selfpaint", sp);
+			if(sp == 0)
+				return false;
+
+			wnd->self_paint = true;
+			Flag<LONG_PTR> ex = ::GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
+			if(ex.has(WS_EX_COMPOSITED))
+			{
+				ex.remove(WS_EX_COMPOSITED);
+				::SetWindowLongPtrW(hWnd, GWL_EXSTYLE, ex);
+			}
+			SelfPaint(wnd, hWnd, -1, wnd->self_sel);
+			return true;
 		}
 
 		LRESULT ContextMenu::OnDrawItem(DRAWITEMSTRUCT *di)
@@ -4908,6 +4942,10 @@ namespace Nilesoft
 			::GetSystemMetrics(SM_CYFIXEDFRAME) * 2
 		};
 
+		// Submenu auto-open for popups painted by SelfPaint. Not a system timer id:
+		// win32k's own IDSYS_MN* timers never fire for an abandoned popup.
+		static constexpr UINT_PTR IDT_SELFOPEN = 0x7C31;
+
 		WND *ContextMenu::OnMenuCreate(HWND hWnd)
 		{
 			auto wnd = &_map[hWnd];
@@ -5877,35 +5915,12 @@ namespace Nilesoft
 						}
 					}
 
-					// Every draw so far landed while the popup was hidden, and the
-					// popup is visible now: win32k painted this menu only before its
-					// reveal and will not paint it again - invalidation comes back as
-					// empty paints, selection changes produce no draws. Take the
-					// painting over. WS_EX_COMPOSITED goes first: it defers
-					// out-of-cycle drawing into a buffer only a paint cycle flushes,
-					// and this popup never gets one.
-					// Switch: HKCU\<APP_KEY>\diag\selfpaint, absent or non-zero on.
-					if(!wnd->self_paint && !flags.has(SWP_HIDEWINDOW)
-					   && ctx->_n_drawitem && !ctx->_n_draw_visible
-					   && ::IsWindowVisible(hWnd))
+					if(!flags.has(SWP_HIDEWINDOW)
+					   && !ctx->MaybeArmSelfPaint(wnd, hWnd)
+					   && wnd->self_paint && !flags.has(SWP_NOMOVE))
 					{
-						int sp = 1;
-						RegistryConfig::get(L"\\diag", L"selfpaint", sp);
-						if(sp != 0)
-						{
-							wnd->self_paint = true;
-							Flag<LONG_PTR> ex = ::GetWindowLongPtrW(hWnd, GWL_EXSTYLE);
-							if(ex.has(WS_EX_COMPOSITED))
-							{
-								ex.remove(WS_EX_COMPOSITED);
-								::SetWindowLongPtrW(hWnd, GWL_EXSTYLE, ex);
-							}
-							ctx->SelfPaint(wnd, hWnd, -1, wnd->self_sel);
-						}
-					}
-					else if(wnd->self_paint && !flags.has(SWP_NOMOVE))
-					{
-						// The surface contents may not survive a move; repaint.
+						// Already ours and the popup moved: the surface contents may
+						// not survive the move, so repaint at the new position.
 						ctx->SelfPaint(wnd, hWnd, -1, wnd->self_sel);
 					}
 					return lret;
@@ -5985,21 +6000,42 @@ namespace Nilesoft
 					ctx->current.selectitem_pos = cmdItem;
 					lret = defSubclassProc();
 
+					// A submenu popup may see no WM_WINDOWPOSCHANGED after its reveal;
+					// the first selection change is then the earliest takeover point.
+					ctx->MaybeArmSelfPaint(wnd, hWnd);
+
 					// Hover, for a popup whose painting we took over: win32k redraws
-					// nothing on selection change there, so the rows that changed
-					// state are repainted here - the old one back to normal, the new
-					// one selected.
+					// nothing on selection change there. A full pass rather than
+					// old-and-new rows, because rows can also go stale sideways -
+					// a parent row keeps its hover colour across its submenu closing.
 					if(wnd->self_paint)
 					{
 						int newsel = cmdItem == MFMWFP_NOITEM ? -1 : static_cast<int>(cmdItem);
 						if(newsel != wnd->self_sel)
 						{
-							auto old = wnd->self_sel;
 							wnd->self_sel = newsel;
-							if(old >= 0)
-								ctx->SelfPaint(wnd, hWnd, old, newsel);
-							if(newsel >= 0)
-								ctx->SelfPaint(wnd, hWnd, newsel, newsel);
+							ctx->SelfPaint(wnd, hWnd, -1, newsel);
+						}
+
+						// win32k also never starts its own submenu-open timer for an
+						// abandoned popup, so hovering an item with a submenu did
+						// nothing until it was clicked. Mirror the timer here and
+						// open the hierarchy the way the menu code itself would.
+						::KillTimer(hWnd, IDT_SELFOPEN);
+						if(newsel >= 0)
+						{
+							MENUITEMINFOW smii = { sizeof(smii), MIIM_SUBMENU };
+							auto hm = wnd->hMenu
+								? wnd->hMenu
+								: reinterpret_cast<HMENU>(::SendMessageW(hWnd, MN_GETHMENU, 0, 0));
+							if(::IsMenu(hm)
+							   && ::GetMenuItemInfoW(hm, static_cast<UINT>(newsel), TRUE, &smii)
+							   && smii.hSubMenu)
+							{
+								uint32_t delay = 400;
+								::SystemParametersInfoW(SPI_GETMENUSHOWDELAY, 0, &delay, 0);
+								::SetTimer(hWnd, IDT_SELFOPEN, delay ? delay : 50, nullptr);
+							}
 						}
 					}
 
@@ -6182,6 +6218,15 @@ namespace Nilesoft
 					break;
 				case WM_TIMER:
 				{
+					if(wParam == IDT_SELFOPEN)
+					{
+						::KillTimer(hWnd, IDT_SELFOPEN);
+						// The selection may have left the submenu item - or the menu
+						// entirely - since the timer was set.
+						if(wnd->self_paint && wnd->self_sel >= 0)
+							::SendMessageW(hWnd, MN_OPENHIERARCHY, 0, 0);
+						return 0;
+					}
 					switch(wParam)
 					{
 						case IDSYS_MNSHOW:
@@ -6452,6 +6497,19 @@ namespace Nilesoft
 							if(!ctx->_level.empty() && ctx->_level.front()->handle
 							   && ::IsWindowVisible(ctx->_level.front()->handle))
 								ctx->_n_draw_visible++;
+
+							// The same, per popup: SelfPaint arms from this ledger,
+							// and the context-wide totals cannot arm a submenu whose
+							// draws arrive while the root is already visible.
+							if(auto dchwnd = ::WindowFromDC(di->hDC); dchwnd)
+							{
+								if(auto dwnd = WND::get_prop(dchwnd); dwnd)
+								{
+									dwnd->n_drawitem++;
+									if(dwnd->handle && ::IsWindowVisible(dwnd->handle))
+										dwnd->n_drawitem_vis++;
+								}
+							}
 
 							auto dr = ctx->OnDrawItem(di);
 
