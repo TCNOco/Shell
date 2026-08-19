@@ -4973,7 +4973,13 @@ namespace Nilesoft
 			   && mii.hSubMenu)
 			{
 				ctx->_n_sp_open++;
-				::SendMessageW(hWnd, MN_OPENHIERARCHY, 0, 0);
+				// A synthetic click, not MN_OPENHIERARCHY: the open request was
+				// counted going out 13 times in a host where nothing opened, so it
+				// is refused for an abandoned popup just like repaints are. Clicking
+				// demonstrably works there, and a click is exactly this pair. The
+				// release on an item with a hierarchy opens it and executes nothing.
+				::SendMessageW(hWnd, MN_BUTTONDOWN, static_cast<WPARAM>(wnd->self_sel), 0);
+				::SendMessageW(hWnd, MN_BUTTONUP, static_cast<WPARAM>(wnd->self_sel), 0);
 			}
 		}
 
@@ -6042,31 +6048,36 @@ namespace Nilesoft
 					if(wnd->self_paint)
 					{
 						int newsel = cmdItem == MFMWFP_NOITEM ? -1 : static_cast<int>(cmdItem);
+
+						// Only on an actual change of selection - including for the
+						// timer below. Hosts repeat MN_SELECTITEM for the item the
+						// pointer is resting on, and resetting the auto-open timer
+						// on every repeat pushed its expiry away indefinitely: 126
+						// timers set, 13 ever fired.
 						if(newsel != wnd->self_sel)
 						{
 							wnd->self_sel = newsel;
 							ctx->SelfPaint(wnd, hWnd, -1, newsel);
-						}
 
-						// win32k also never starts its own submenu-open timer for an
-						// abandoned popup, so hovering an item with a submenu did
-						// nothing until it was clicked. Mirror the timer here and
-						// open the hierarchy the way the menu code itself would.
-						::KillTimer(hWnd, IDT_SELFOPEN);
-						if(newsel >= 0)
-						{
-							MENUITEMINFOW smii = { sizeof(smii), MIIM_SUBMENU };
-							auto hm = wnd->hMenu
-								? wnd->hMenu
-								: reinterpret_cast<HMENU>(::SendMessageW(hWnd, MN_GETHMENU, 0, 0));
-							if(::IsMenu(hm)
-							   && ::GetMenuItemInfoW(hm, static_cast<UINT>(newsel), TRUE, &smii)
-							   && smii.hSubMenu)
+							// win32k never starts its own submenu-open timer for an
+							// abandoned popup, so hovering an item with a submenu
+							// did nothing until it was clicked. Mirror the timer.
+							::KillTimer(hWnd, IDT_SELFOPEN);
+							if(newsel >= 0)
 							{
-								uint32_t delay = 400;
-								::SystemParametersInfoW(SPI_GETMENUSHOWDELAY, 0, &delay, 0);
-								ctx->_n_sp_timer_set++;
-								::SetTimer(hWnd, IDT_SELFOPEN, delay ? delay : 50, SelfOpenTimerProc);
+								MENUITEMINFOW smii = { sizeof(smii), MIIM_SUBMENU };
+								auto hm = wnd->hMenu
+									? wnd->hMenu
+									: reinterpret_cast<HMENU>(::SendMessageW(hWnd, MN_GETHMENU, 0, 0));
+								if(::IsMenu(hm)
+								   && ::GetMenuItemInfoW(hm, static_cast<UINT>(newsel), TRUE, &smii)
+								   && smii.hSubMenu)
+								{
+									uint32_t delay = 400;
+									::SystemParametersInfoW(SPI_GETMENUSHOWDELAY, 0, &delay, 0);
+									ctx->_n_sp_timer_set++;
+									::SetTimer(hWnd, IDT_SELFOPEN, delay ? delay : 50, SelfOpenTimerProc);
+								}
 							}
 						}
 					}
