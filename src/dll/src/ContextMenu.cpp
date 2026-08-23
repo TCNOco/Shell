@@ -1707,14 +1707,11 @@ namespace Nilesoft
 					continue;
 				::MapWindowPoints(nullptr, hWnd, reinterpret_cast<POINT *>(&rc), 2);
 
-				MENUITEMINFOW mii = { sizeof(mii), MIIM_ID | MIIM_STATE | MIIM_FTYPE };
+				MENUITEMINFOW mii = { sizeof(mii), MIIM_ID | MIIM_STATE | MIIM_FTYPE | MIIM_DATA };
 				if(!::GetMenuItemInfoW(hMenu, static_cast<UINT>(i), TRUE, &mii))
 					continue;
 
-				// Rows that are not ours would fall into OnDrawItem's pass-through,
-				// which replays the message being dispatched - there is none here.
-				if(mii.wID != MF_NOITEM && !get_item(mii.wID, hMenu, _items))
-					continue;
+				auto ours = mii.wID == MF_NOITEM || get_item(mii.wID, hMenu, _items) != nullptr;
 
 				DRAWITEMSTRUCT dis{};
 				dis.CtlType = ODT_MENU;
@@ -1723,6 +1720,9 @@ namespace Nilesoft
 				dis.hwndItem = reinterpret_cast<HWND>(hMenu);
 				dis.hDC = hdc;
 				dis.rcItem = rc;
+				// The host's own rows find their item through this (VCL keeps the
+				// TMenuItem pointer here); ours ignore it.
+				dis.itemData = mii.dwItemData;
 				// self_sel only - MFS_HILITE is win32k's bookkeeping, and in the
 				// hosts that need SelfPaint it goes stale: a parent row kept its
 				// hilite bit after the submenu closed, and painting from it left the
@@ -1736,7 +1736,23 @@ namespace Nilesoft
 				if(mii.fState & MFS_DEFAULT)
 					dis.itemState |= ODS_DEFAULT;
 
-				OnDrawItem(&dis);
+				if(ours)
+					OnDrawItem(&dis);
+				else if(mii.fType & MFT_SEPARATOR)
+				{
+					dis.itemID = MF_NOITEM;
+					OnDrawItem(&dis);
+				}
+				else if(hwnd.owner)
+				{
+					// A row the host added - TreeSize puts three of its own at the
+					// top of every file and folder menu. win32k paints those by
+					// asking the OWNER, so this asks the owner the same way: the
+					// owner subclass captures the message, OnDrawItem misses the
+					// item and falls into its pass-through, and the host draws
+					// into the scratch bitmap that pass-through composites in.
+					::SendMessageW(hwnd.owner, WM_DRAWITEM, 0, reinterpret_cast<LPARAM>(&dis));
+				}
 
 				if(!_dbg_have_px_self && mii.wID != MF_NOITEM)
 				{
