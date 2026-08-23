@@ -233,6 +233,20 @@ function Copy-Binary {
             Start-Sleep -Milliseconds (500 * $try)
         }
     }
+
+    # Not transient, then. Name the holder instead of guessing: Restart Manager
+    # lists everyone with the file mapped (dozens, harmless), but only a real
+    # handle without FILE_SHARE_DELETE blocks a rename, and only the kernel
+    # handle table says who has one. Last time it was a running game (cs2.exe),
+    # which is also why the holder is reported and not closed from here:
+    # closing a handle inside an anti-cheat-protected process from outside is
+    # what anti-cheat looks for.
+    $hunt = Join-Path $here 'who-holds.ps1'
+    if (Test-Path $hunt) {
+        Write-Warn "$leaf is held open by:"
+        & $hunt -Path $Destination
+        Write-Warn 'close those and re-run (handles opened by a game/anti-cheat are not safe to force-close)'
+    }
     throw "could not replace $leaf after 6 attempts: $($last.Exception.Message)"
 }
 
