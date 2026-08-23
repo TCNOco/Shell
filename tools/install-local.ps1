@@ -158,6 +158,22 @@ if (Test-Path $exe) {
 
 Restart-Explorer   # releases the pin on shell.dll
 
+# From here until Register succeeds, the machine has no extension registered.
+# If anything in between throws, re-register whatever shell.dll is in place -
+# the previous build if the copy failed, the new one if only a later check
+# did - rather than leave every context menu as the Windows default.
+$registeredAgain = $false
+trap {
+    if (-not $registeredAgain -and (Test-Path $exe)) {
+        $registeredAgain = $true
+        Write-Warn "install failed: $($_.Exception.Message)"
+        Write-Warn 're-registering the build currently in place so menus keep working'
+        try { [void](Invoke-ShellExe -Path $exe -Arguments @('-register', '-silent')) } catch { }
+        Restart-Explorer
+    }
+    break
+}
+
 $keepConfig = (-not $ResetConfig) -and (Test-Path (Join-Path $InstallDir 'shell.nss'))
 $stash = $null
 if ($keepConfig) {
@@ -199,9 +215,25 @@ function Copy-Binary {
 
     $leaf  = Split-Path $Destination -Leaf
     $aside = "$leaf.old-" + (Get-Date -Format 'yyyyMMdd-HHmmss')
-    Rename-Item -LiteralPath $Destination -NewName $aside -Force -ErrorAction Stop
-    Copy-Item $Source $Destination -Force -ErrorAction Stop
-    Write-Warn "$leaf was in use; the old one is now $aside and is deleted on a later run"
+
+    # Renaming a mapped image is allowed, but a plain handle opened without
+    # FILE_SHARE_DELETE - an AV scan or an indexer touching the file at that
+    # moment - refuses it. That is transient, and one failure here left the
+    # machine with no extension registered at all, so retry before giving up.
+    $last = $null
+    for ($try = 1; $try -le 6; $try++) {
+        try {
+            Rename-Item -LiteralPath $Destination -NewName $aside -Force -ErrorAction Stop
+            Copy-Item $Source $Destination -Force -ErrorAction Stop
+            Write-Warn "$leaf was in use; the old one is now $aside and is deleted on a later run"
+            return
+        }
+        catch {
+            $last = $_
+            Start-Sleep -Milliseconds (500 * $try)
+        }
+    }
+    throw "could not replace $leaf after 6 attempts: $($last.Exception.Message)"
 }
 
 Copy-Binary (Join-Path $bin 'shell.dll') (Join-Path $InstallDir 'shell.dll')
@@ -247,6 +279,7 @@ if ($registered -ne (Join-Path $InstallDir 'shell.dll')) {
     throw "InprocServer32 points at '$registered', expected '$(Join-Path $InstallDir 'shell.dll')'"
 }
 Write-Ok "registered -> $registered"
+$registeredAgain = $true   # the trap above has nothing left to rescue
 
 Restart-Explorer
 
