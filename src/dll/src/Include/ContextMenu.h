@@ -809,6 +809,21 @@ plutovg_move_to(pluto, start.x, start.y);
 			// left in the window, read back the same way as px_item.
 			uint32_t _n_selfpaint{};
 			uint32_t _dbg_px_self{}, _dbg_pa_self{}, _dbg_blt_self{};
+
+			// The forwarded host-row pipeline, stage by stage. fw counts entries
+			// into the pass-through; fw_drawn is the most pixels the host ever
+			// left in the scratch bitmap (0 = it never draws for us and every
+			// read-back elsewhere is stale surface content); fw_ret its last
+			// return. hb/hbp: MN_SELECTITEM hover block entered / actually
+			// repainted - separates "hover path broken" from "nothing hovered".
+			// armsite: which call site armed SelfPaint. px_self2: row 0 re-read
+			// after the delayed pass, which runs once the popup is presented.
+			uint32_t _n_fw{};
+			uint32_t _dbg_fw_drawn{};
+			int _dbg_fw_ret{ -999 };
+			uint32_t _n_hb{}, _n_hbp{};
+			wchar_t _dbg_armsite{ L'-' };
+			uint32_t _dbg_px_self2{}, _dbg_pa_self2{}, _dbg_blt_self2{};
 			bool _dbg_have_px_self{};
 
 			// The submenu auto-open pipeline, stage by stage: timers set on hover,
@@ -867,7 +882,7 @@ plutovg_move_to(pluto, start.x, start.y);
 			LRESULT OnDrawItem(DRAWITEMSTRUCT *di);
 			LRESULT OnMeasureItem(MEASUREITEMSTRUCT *mi);
 			void SelfPaint(WND *wnd, HWND hWnd, int only_pos, int sel_pos);
-			bool MaybeArmSelfPaint(WND *wnd, HWND hWnd);
+			bool MaybeArmSelfPaint(WND *wnd, HWND hWnd, wchar_t site);
 
 
 			uint32_t invoke(CommandProperty *cmd_prop);
@@ -922,6 +937,7 @@ plutovg_move_to(pluto, start.x, start.y);
 			//static LRESULT __stdcall MenuProc(HWND hWnd, uint32_t uMsg, WPARAM wParam, LPARAM lParam);
 			static LRESULT __stdcall MenuSubClassProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam, UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
 			static void __stdcall SelfOpenTimerProc(HWND hWnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
+			static void __stdcall SelfPaintTimerProc(HWND hWnd, UINT uMsg, UINT_PTR idEvent, DWORD dwTime);
 			static void __stdcall WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD dwEvent, HWND hWnd, LONG idObject, LONG idChild, DWORD idEventThread, DWORD dwmsEventTime);
 			static LRESULT __stdcall KeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
 

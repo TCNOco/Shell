@@ -139,8 +139,11 @@ function Probe-TreeSize {
 
     $r = New-Object MenuProbe.RECT
     [void][MenuProbe.Native]::GetWindowRect($h, [ref]$r)
-    # Inside the file list rather than the toolbar or the frame.
-    Invoke-MenuAt -X ($r.left + 220) -Y ($r.top + 320)
+    # Center-left at 60% height: inside the file tree on a loaded window,
+    # clear of the ribbon and the frame. The old fixed offset (220,320) sat in
+    # ribbon territory on current TreeSize layouts and opened nothing, which
+    # looked exactly like the DLL not loading.
+    Invoke-MenuAt -X ($r.left + [int](($r.right - $r.left) * 0.35)) -Y ($r.top + [int](($r.bottom - $r.top) * 0.6))
     return $true
 }
 
