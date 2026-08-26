@@ -1758,7 +1758,9 @@ namespace Nilesoft
 					// owner subclass captures the message, OnDrawItem misses the
 					// item and falls into its pass-through, and the host draws
 					// into the scratch bitmap that pass-through composites in.
+					_forwarding = true;
 					::SendMessageW(hwnd.owner, WM_DRAWITEM, 0, reinterpret_cast<LPARAM>(&dis));
+					_forwarding = false;
 				}
 
 				if(!_dbg_have_px_self && mii.wID != MF_NOITEM)
@@ -1937,7 +1939,21 @@ namespace Nilesoft
 					_pt_first_item_menu = _items.empty() ? nullptr : _items.front()->handle;
 				}
 
-				if(auto_gdi<HBITMAP> hbitmap(dc.createbitmap(rc->width(), rc->height())); hbitmap)
+				// A DIB section, not a compatible bitmap: the blend at the end
+				// reads per-pixel alpha (AC_SRC_ALPHA), and a DDB has no reliable
+				// alpha channel - SetDIBits can stamp the bytes in and the driver
+				// may still hand back zero, at which point the blend composites
+				// nothing and the row shows only the layer behind the popup.
+				BITMAPINFO bmi{};
+				bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+				bmi.bmiHeader.biWidth = rc->width();
+				bmi.bmiHeader.biHeight = -rc->height();
+				bmi.bmiHeader.biPlanes = 1;
+				bmi.bmiHeader.biBitCount = 32;
+				bmi.bmiHeader.biCompression = BI_RGB;
+				void *dib_bits{};
+
+				if(auto_gdi<HBITMAP> hbitmap(::CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, &dib_bits, nullptr, 0)); hbitmap)
 				{
 					DC dcmem(dc.CreateCompatibleDC(), 1);
 					dcmem.select_bitmap(hbitmap.get());
@@ -4560,7 +4576,7 @@ namespace Nilesoft
 									L"composition=%d(dwm=%d act=%d) "
 									L"text=%06X(a=%d) sel=%06X(a=%d) transparent=%d effect=%d | "
 									L"sp=%u spt=%u/%u/%u px_self=%u/a%u b%u "
-									L"fw=%u drawn=%u ret=%d hb=%u/%u arm=%c px2=%u/a%u b%u | seq[%s ]%s",
+									L"fw=%u fwd=%u drawn=%u ret=%d hb=%u/%u arm=%c px2=%u/a%u b%u | seq[%s ]%s",
 									_items.size(), _n_measureitem, _n_drawitem, _n_passthrough,
 								_n_draw_visible, _n_showpaint,
 									hwnd.owner, Window::class_name(hwnd.owner).c_str(),
@@ -4586,7 +4602,7 @@ namespace Nilesoft
 									_theme.transparent ? 1 : 0, _theme.background.effect,
 									_n_selfpaint, _n_sp_timer_set, _n_sp_timer_fire, _n_sp_open,
 									_dbg_px_self, _dbg_pa_self, _dbg_blt_self,
-									_n_fw, _dbg_fw_drawn, _dbg_fw_ret, _n_hb, _n_hbp,
+									_n_fw, _n_fw_disp, _dbg_fw_drawn, _dbg_fw_ret, _n_hb, _n_hbp,
 									_dbg_armsite, _dbg_px_self2, _dbg_pa_self2, _dbg_blt_self2,
 									seq,
 									(_n_drawitem == 0 && !_items.empty())
@@ -6631,6 +6647,8 @@ namespace Nilesoft
 						if(di->CtlType == ODT_MENU/* && wParam == 0*/)
 						{
 							ctx->_n_drawitem++;
+							if(ctx->_forwarding)
+								ctx->_n_fw_disp++;
 
 							// Draws that had somewhere to land. A draw into a hidden
 							// window is discarded in full and still reports success,

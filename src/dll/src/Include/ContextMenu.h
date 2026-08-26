@@ -821,6 +821,11 @@ plutovg_move_to(pluto, start.x, start.y);
 			uint32_t _n_fw{};
 			uint32_t _dbg_fw_drawn{};
 			int _dbg_fw_ret{ -999 };
+			// Set across SelfPaint's SendMessage to the owner, counted by the
+			// dispatcher: fw entries not matched by dispatcher entries would mean
+			// the message is reaching OnDrawItem by a path not yet in the model.
+			bool _forwarding{};
+			uint32_t _n_fw_disp{};
 			uint32_t _n_hb{}, _n_hbp{};
 			wchar_t _dbg_armsite{ L'-' };
 			uint32_t _dbg_px_self2{}, _dbg_pa_self2{}, _dbg_blt_self2{};
