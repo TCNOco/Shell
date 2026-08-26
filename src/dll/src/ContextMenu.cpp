@@ -1895,12 +1895,33 @@ namespace Nilesoft
 					DC dcmem(dc.CreateCompatibleDC(), 1);
 					dcmem.select_bitmap(hbitmap.get());
 
+					// Magenta is the same DWORD in COLORREF (BGR) and in the DIB
+					// (RGB), which is why it can be both the brush and the key.
+					constexpr COLORREF sentinel = 0x00FF00FF;
+
+					// A sentinel to key on afterwards, instead of keying on black:
+					// hosts draw black text, and treating black as transparent
+					// turned every forwarded row into a filled block with
+					// text-shaped holes where the caption should be.
+					{
+						auto_gdi<HBRUSH> hsent(::CreateSolidBrush(sentinel));
+						RECT rcfill{ 0, 0, rc->width(), rc->height() };
+						::FillRect(dcmem, &rcfill, hsent.get());
+					}
+
+					// The host draws at rcItem's own coordinates, and for every row
+					// but the first those lie outside a bitmap that only spans the
+					// row - the drawing was clipped away in full and the row came
+					// out blank. Shift the origin so rcItem maps onto the bitmap.
+					::SetWindowOrgEx(dcmem, rc->left, rc->top, nullptr);
+
 					auto old_hdc = di->hDC;
 					di->hDC = dcmem;
 
 					lret = msg.invoke();
-					
+
 					di->hDC = old_hdc;
+					::SetWindowOrgEx(dcmem, 0, 0, nullptr);
 
 					std::vector<COLORREF> pixels(rc->width() * rc->height());
 
@@ -1915,8 +1936,10 @@ namespace Nilesoft
 					::GetDIBits(dcmem, hbitmap.get(), 0, rc->height(), &pixels[0], (LPBITMAPINFO)&bmpInfo, DIB_RGB_COLORS);
 
 					std::for_each(pixels.begin(), pixels.end(), [](COLORREF &pixel) {
-						if(pixel != 0) // black pixels stay transparent
-							pixel |= 0xFF000000; // set alpha channel to 100%
+						if((pixel & 0x00FFFFFF) == sentinel)
+							pixel = 0; // untouched by the host: fully transparent
+						else
+							pixel |= 0xFF000000; // drawn, black included: opaque
 					});
 
 					::SetDIBits(dcmem, hbitmap.get(), 0, rc->height(), &pixels[0], (LPBITMAPINFO)&bmpInfo, DIB_RGB_COLORS);
